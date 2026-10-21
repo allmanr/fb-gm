@@ -1,0 +1,6 @@
+league-weeks=4000 team-weeks=40000 decisions=577732 flipped vs EV=25629 (4.4%)
+EV policy: 0.9980 wins/team-week (H2H + median)
+  all                              n=40000  win-odds - EV = +0.240 wins/20 weeks  95% CI [+0.181, +0.301]
+  favourite (pre-week H2H >= 60%)  n= 8916  win-odds - EV = +0.295 wins/20 weeks  95% CI [+0.169, +0.424]
+  even (40-60%)                    n=22168  win-odds - EV = +0.189 wins/20 weeks  95% CI [+0.109, +0.270]
+  underdog (< 40%)                 n= 8916  win-odds - EV = +0.312 wins/20 weeks  95% CI [+0.160, +0.461]

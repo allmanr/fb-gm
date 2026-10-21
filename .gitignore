@@ -1,0 +1,11 @@
+.cache
+.claude/worktrees/
+__pycache__/
+# Owner config, notes, league reports and GM state: its own private repo (README: Private data).
+private/
+*:Zone.Identifier
+reports/2026-10-20/backtest/data/
+reports/2026-10-20/backtest/data24/
+reports/2026-10-20/backtest/games.json
+reports/2026-10-20/backtest/q3_*.json
+reports/2026-10-20/backtest/tips25/

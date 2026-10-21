@@ -1,0 +1,16 @@
+Season 2025-26 (prior 2024-25); player-games with n >= 6, blend <= 35, >= 3 games in next 14 days
+  baseline (all, 1 per player per 14d): n  2848 players  444 | resid +0.98 [+0.61,+1.36] | RMSE blend  7.43 alt  7.64 (alt bias -0.98)
+  last-3 min - season avg >=  4:      n  1071 players  362 | resid +3.78 [+3.24,+4.32] | RMSE blend  8.81 alt  8.24 (alt bias +1.85)
+  last-3 min - season avg >=  6:      n   672 players  276 | resid +4.88 [+4.17,+5.66] | RMSE blend  9.46 alt  8.56 (alt bias +2.42)
+  last-3 min - season avg >=  8:      n   399 players  195 | resid +6.35 [+5.40,+7.23] | RMSE blend 10.33 alt  8.61 (alt bias +2.50)
+  last-3 min - season avg >= 10:      n   229 players  132 | resid +7.32 [+6.09,+8.52] | RMSE blend 10.82 alt  9.05 (alt bias +3.08)
+  last-3 min - season avg >= 12:      n   119 players   78 | resid +8.50 [+6.87,+10.15] | RMSE blend 11.49 alt  8.75 (alt bias +3.81)
+  jump in [4, 8):                  n   995 players  360 | resid +3.23 [+2.72,+3.78] | RMSE blend  8.29 alt  8.00 (alt bias +1.75)
+Season 2024-25 (prior 2023-24); player-games with n >= 6, blend <= 35, >= 3 games in next 14 days
+  baseline (all, 1 per player per 14d): n  2753 players  435 | resid +0.98 [+0.68,+1.30] | RMSE blend  7.38 alt  7.73 (alt bias -1.12)
+  last-3 min - season avg >=  4:      n  1085 players  364 | resid +3.37 [+2.82,+3.86] | RMSE blend  8.28 alt  8.00 (alt bias +2.00)
+  last-3 min - season avg >=  6:      n   678 players  302 | resid +4.39 [+3.80,+5.05] | RMSE blend  9.01 alt  8.37 (alt bias +2.70)
+  last-3 min - season avg >=  8:      n   413 players  224 | resid +5.75 [+4.87,+6.69] | RMSE blend 10.12 alt  8.94 (alt bias +3.14)
+  last-3 min - season avg >= 10:      n   225 players  146 | resid +6.93 [+5.77,+8.05] | RMSE blend 11.39 alt 10.31 (alt bias +3.84)
+  last-3 min - season avg >= 12:      n   130 players   94 | resid +7.50 [+6.01,+8.95] | RMSE blend 11.22 alt 10.24 (alt bias +4.61)
+  jump in [4, 8):                  n  1005 players  361 | resid +2.94 [+2.43,+3.46] | RMSE blend  7.97 alt  7.88 (alt bias +1.77)

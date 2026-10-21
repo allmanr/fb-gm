@@ -1,0 +1,116 @@
+players=367 active player-weeks=8149 dead weeks(0 games played)=994
+games/week dist {1: 126, 2: 1014, 3: 3310, 4: 3599, 5: 81}
+  last          21.52
+  first         24.18
+  max           33.42
+  mean_game     24.30
+  oracle        29.73
+  oracle_pred   32.41
+  causal        29.45
+  causal_pred   31.97
+  oracle            29.73  +8.21 vs last, +5.54 vs first, capture 69.0% of last->max gap, 60.0% of first->max
+  causal            29.45  +7.93 vs last, +5.26 vs first, capture 66.6% of last->max gap, 57.0% of first->max
+  oracle_q0.03      29.82  +8.31 vs last, +5.64 vs first, capture 69.8% of last->max gap, 61.1% of first->max
+  oracle_q0.05      29.87  +8.35 vs last, +5.69 vs first, capture 70.2% of last->max gap, 61.6% of first->max
+  oracle_q0.08      29.85  +8.34 vs last, +5.67 vs first, capture 70.0% of last->max gap, 61.4% of first->max
+  oracle_q0.12      29.84  +8.32 vs last, +5.66 vs first, capture 69.9% of last->max gap, 61.2% of first->max
+  causal_q0.03      29.46  +7.94 vs last, +5.28 vs first, capture 66.7% of last->max gap, 57.1% of first->max
+  causal_q0.05      29.48  +7.96 vs last, +5.30 vs first, capture 66.9% of last->max gap, 57.3% of first->max
+  causal_q0.08      29.52  +8.00 vs last, +5.34 vs first, capture 67.2% of last->max gap, 57.8% of first->max
+  causal_q0.12      29.53  +8.02 vs last, +5.35 vs first, capture 67.4% of last->max gap, 57.9% of first->max
+  multiplier sweep (oracle / causal):
+    m=0.80  29.533  29.252
+    m=0.85  29.732  29.496
+    m=0.90  29.803  29.564
+    m=0.93  29.857  29.544
+    m=0.95  29.870  29.500
+    m=0.97  29.847  29.460
+    m=1.00  29.728  29.448
+    m=1.05  29.540  29.279
+
+DNP hazard (next in-week game, given played previous):
+  all        n= 16064 p_dnp=0.114
+  b2b        n=  4080 p_dnp=0.133
+  fp0        n=  1046 p_dnp=0.268
+  fp10       n=  4941 p_dnp=0.139
+  fp20       n=  5142 p_dnp=0.084
+  fp30       n=  3110 p_dnp=0.082
+  fp40       n=  1162 p_dnp=0.096
+  fp50       n=   481 p_dnp=0.096
+  fp60       n=   182 p_dnp=0.093
+  reg25      n=  7059 p_dnp=0.083
+  reg25_65g  n=  5090 p_dnp=0.063
+  reg25_b2b  n=  1774 p_dnp=0.124
+  reg25_rest n=  5285 p_dnp=0.070
+  rest>=1d   n= 11984 p_dnp=0.107
+
+Continuation calibration: (FP bucket, games left) n pred pred_q.05 realized real/pred
+  ('all', 1)   n= 6887 pred= 25.42 pred_q= 24.15 real= 22.96 ratio=0.903
+  ('all', 2)   n= 5996 pred= 30.09 pred_q= 29.22 real= 27.55 ratio=0.915
+  ('all', 3)   n= 3100 pred= 32.80 pred_q= 32.08 real= 30.21 ratio=0.921
+  ('all', 4)   n=   76 pred= 30.49 pred_q= 29.94 real= 27.37 ratio=0.898
+  ('clean', 1) n= 6094 pred= 25.88 pred_q= 24.59 real= 25.94 ratio=1.002
+  ('clean', 2) n= 4809 pred= 30.91 pred_q= 30.01 real= 31.45 ratio=1.018
+  ('clean', 3) n= 2251 pred= 33.76 pred_q= 33.03 real= 34.70 ratio=1.028
+  ('clean', 4) n=   39 pred= 29.51 pred_q= 28.97 real= 33.45 ratio=1.134
+  ('reg25', 1) n= 3011 pred= 36.27 pred_q= 34.45 real= 33.00 ratio=0.910
+  ('reg25', 2) n= 2649 pred= 42.07 pred_q= 40.87 real= 38.62 ratio=0.918
+  ('reg25', 3) n= 1371 pred= 45.49 pred_q= 44.53 real= 41.55 ratio=0.913
+  ('reg25clean', 1) n= 2756 pred= 36.21 pred_q= 34.40 real= 36.06 ratio=0.996
+  ('reg25clean', 2) n= 2237 pred= 41.90 pred_q= 40.71 real= 42.17 ratio=1.006
+  ('reg25clean', 3) n= 1050 pred= 45.28 pred_q= 44.33 real= 45.65 ratio=1.008
+  (0, 1)       n=  460 pred=  7.79 pred_q=  7.40 real=  6.30 ratio=0.809
+  (0, 2)       n=  387 pred=  9.48 pred_q=  9.19 real=  8.26 ratio=0.872
+  (0, 3)       n=  190 pred= 10.62 pred_q= 10.38 real= 10.61 ratio=0.999
+  (10, 1)      n= 2101 pred= 15.51 pred_q= 14.74 real= 13.95 ratio=0.899
+  (10, 2)      n= 1843 pred= 18.95 pred_q= 18.38 real= 17.28 ratio=0.912
+  (10, 3)      n=  966 pred= 20.89 pred_q= 20.41 real= 19.74 ratio=0.945
+  (10, 4)      n=   30 pred= 22.74 pred_q= 22.30 real= 24.15 ratio=1.062
+  (20, 1)      n= 2224 pred= 24.63 pred_q= 23.40 real= 22.43 ratio=0.911
+  (20, 2)      n= 1913 pred= 29.51 pred_q= 28.64 real= 27.12 ratio=0.919
+  (20, 3)      n=  984 pred= 32.34 pred_q= 31.63 real= 29.33 ratio=0.907
+  (30, 1)      n= 1332 pred= 34.65 pred_q= 32.92 real= 31.62 ratio=0.913
+  (30, 2)      n= 1166 pred= 40.42 pred_q= 39.26 real= 36.96 ratio=0.914
+  (30, 3)      n=  597 pred= 43.78 pred_q= 42.85 real= 40.06 ratio=0.915
+  (40, 1)      n=  485 pred= 45.41 pred_q= 43.14 real= 41.16 ratio=0.906
+  (40, 2)      n=  435 pred= 51.78 pred_q= 50.34 real= 47.27 ratio=0.913
+  (40, 3)      n=  238 pred= 55.46 pred_q= 54.33 real= 50.81 ratio=0.916
+  (50, 1)      n=  207 pred= 52.00 pred_q= 49.40 real= 45.18 ratio=0.869
+  (50, 2)      n=  184 pred= 58.61 pred_q= 56.99 real= 53.67 ratio=0.916
+  (50, 3)      n=   90 pred= 62.36 pred_q= 61.11 real= 57.29 ratio=0.919
+  (60, 1)      n=   78 pred= 66.55 pred_q= 63.22 real= 58.58 ratio=0.880
+  (60, 2)      n=   68 pred= 72.87 pred_q= 70.92 real= 69.40 ratio=0.952
+  (60, 3)      n=   35 pred= 76.91 pred_q= 75.44 real= 72.20 ratio=0.939
+
+Whole-week E[locked]: (bucket, n games) pred pred_q.05 realized
+  (0, 2)     n=   90 pred= 10.02 pred_q=  9.72 real=  7.63 ratio=0.762
+  (0, 3)     n=  250 pred= 10.44 pred_q= 10.20 real=  7.75 ratio=0.742
+  (0, 4)     n=  288 pred= 11.18 pred_q= 10.97 real= 11.42 ratio=1.021
+  (10, 1)    n=   40 pred= 15.77 pred_q= 14.98 real= 15.34 ratio=0.972
+  (10, 2)    n=  307 pred= 18.74 pred_q= 18.17 real= 16.91 ratio=0.902
+  (10, 3)    n= 1053 pred= 21.02 pred_q= 20.54 real= 18.10 ratio=0.861
+  (10, 4)    n= 1157 pred= 22.21 pred_q= 21.79 real= 20.53 ratio=0.924
+  (10, 5)    n=   30 pred= 23.65 pred_q= 23.25 real= 25.03 ratio=1.059
+  (20, 1)    n=   44 pred= 25.02 pred_q= 23.77 real= 22.34 ratio=0.893
+  (20, 2)    n=  325 pred= 29.37 pred_q= 28.50 real= 27.82 ratio=0.947
+  (20, 3)    n= 1021 pred= 32.29 pred_q= 31.57 real= 29.98 ratio=0.928
+  (20, 4)    n= 1111 pred= 34.28 pred_q= 33.65 real= 31.19 ratio=0.910
+  (30, 2)    n=  188 pred= 40.19 pred_q= 39.04 real= 38.64 ratio=0.961
+  (30, 3)    n=  620 pred= 43.75 pred_q= 42.82 real= 41.44 ratio=0.947
+  (30, 4)    n=  647 pred= 45.99 pred_q= 45.19 real= 41.60 ratio=0.904
+  (40, 2)    n=   66 pred= 51.67 pred_q= 50.22 real= 48.11 ratio=0.931
+  (40, 3)    n=  228 pred= 55.46 pred_q= 54.33 real= 50.80 ratio=0.916
+  (40, 4)    n=  251 pred= 57.95 pred_q= 56.98 real= 52.47 ratio=0.906
+  (50, 3)    n=   99 pred= 62.43 pred_q= 61.18 real= 59.82 ratio=0.958
+  (50, 4)    n=  107 pred= 64.92 pred_q= 63.87 real= 58.06 ratio=0.894
+  (60, 3)    n=   39 pred= 76.57 pred_q= 75.11 real= 73.26 ratio=0.957
+  (60, 4)    n=   38 pred= 79.80 pred_q= 78.58 real= 76.45 ratio=0.958
+
+Q4 thresholds as multiple of FP/g (lock if score >= x * FP/g): q=0 / q=0.08 / q=0.12(b2b)
+  30 FP/g: k1: 1.00/0.92/0.88  k2: 1.18/1.13/1.10  k3: 1.28/1.24/1.22  k4: 1.36/1.32/1.30
+  40 FP/g: k1: 1.00/0.92/0.88  k2: 1.15/1.10/1.07  k3: 1.24/1.20/1.18  k4: 1.30/1.27/1.25
+  50 FP/g: k1: 1.00/0.92/0.88  k2: 1.13/1.08/1.05  k3: 1.20/1.17/1.15  k4: 1.26/1.22/1.21
+  60 FP/g: k1: 1.00/0.92/0.88  k2: 1.11/1.06/1.04  k3: 1.18/1.14/1.12  k4: 1.22/1.19/1.18
+  75 FP/g: k1: 1.00/0.92/0.88  k2: 1.09/1.04/1.02  k3: 1.14/1.11/1.09  k4: 1.18/1.15/1.14
+  waiting-value multiplier V_k(q=.08)/V_k(0) at 45 FP/g: [0.92, 0.955, 0.967, 0.973]
+  approx V_k(q) ~ V_k(0) - q*ppg check at 45: [1.0, 0.973, 0.966, 0.963]

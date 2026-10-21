@@ -1,0 +1,11 @@
+players snapshot: /home/rallman/fb-gm/.cache/players-2026-10-20.json
+tip times for 166 of 166 game dates
+Owner roster: 13/14 active players have 2025-26 logs (the rest add nothing to either arm)
+  baseline: expected 522.5 FP/wk, realized 440.5, rolls 39.1/wk
+  gap 2.5 h: +2.16 rolls/wk; expected +1.15 FP/wk [+0.75, +1.62]; realized +2.58 [-1.02, +8.06]
+  gap 3.0 h: +1.52 rolls/wk; expected +0.80 FP/wk [+0.53, +1.11]; realized +2.58 [-0.92, +8.24]
+  gap 3.5 h: +0.80 rolls/wk; expected +0.53 FP/wk [+0.29, +0.83]; realized +0.70 [-0.70, +2.70]
+Random leagues: 300 league-weeks x 10 teams; baseline expected 456.0 FP/team-week
+  gap 2.5 h: +2.16 rolls/wk; +1.19 FP/wk expected [+1.09, +1.31]; +4.33 FP/wk realized [+3.68, +4.99]; +0.87 wins/20 wk [+0.69, +1.06]
+  gap 3.0 h: +1.37 rolls/wk; +0.73 FP/wk expected [+0.68, +0.78]; +2.86 FP/wk realized [+2.43, +3.31]; +0.60 wins/20 wk [+0.43, +0.77]
+  gap 3.5 h: +0.71 rolls/wk; +0.39 FP/wk expected [+0.35, +0.43]; +1.51 FP/wk realized [+1.19, +1.85]; +0.28 wins/20 wk [+0.17, +0.41]

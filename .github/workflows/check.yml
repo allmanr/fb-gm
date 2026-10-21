@@ -1,0 +1,12 @@
+# Same offline suites as the pre-commit hook, for agents that commit without it.
+name: check
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+      - run: PY=python scripts/check.sh

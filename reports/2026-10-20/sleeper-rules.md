@@ -1,0 +1,35 @@
+# Sleeper rules check: our league
+
+Pulled Oct 19, 2026, ~22:30–23:15 CDT. The settings come from live `GET /v1/league/<id>`. Help-center pages were read directly.
+
+## League settings (live API)
+`game_mode 1` (Lock-In), `waiver_type 0`, `waiver_budget 100`, `waiver_clear_days 2`, `waiver_after_game_start 1`, `daily_waivers 0`, `daily_waivers_hour 0`, `waiver_day_of_week 0`, `trade_review_days 2`, `trade_deadline 18`, `pick_trading 0`, `league_average_match 1`, `playoff_week_start 21`, `playoff_teams 6`, `reserve_slots 2` (IR/Sus/DNR only; `reserve_allow_out 0`), `bench_lock 0`.
+Our live waiver position is **10 of 10** (`rosters[].settings.waiver_position`), so we have last priority.
+
+## Waivers
+- **`waiver_type: 0` = rolling waivers.** This is UNVERIFIED in official docs: docs.sleeper.com doesn't document league `settings` keys. The mapping 0 = rolling, 1 = reverse standings, 2 = FAAB is the convention third-party API clients use. Two things support it. Sleeper's default is rolling, and it sends a team that makes a successful claim to the back of the order (https://support.sleeper.com/en/articles/3978868-waivers-for-regular-season-playoffs). The `waiver_budget: 100` field is present but should do nothing unless the type is FAAB. **Verify in app:** League → Settings → Waiver Type.
+- **`waiver_clear_days: 2`:** A dropped player stays on waivers for 47 hours, and claims process in the 48th hour (same URL as above). Sleeper's 24-hour rule also applies: a player added from free agency and dropped within 24 hours goes straight back to free agency, not to waivers (same URL).
+- **`waiver_after_game_start: 1`:** "After Games Waivers Clear" is on. Free agents lock to waivers once their game starts and clear on the league's waiver-clear day (same URL; also https://support.sleeper.com/en/articles/3242468-after-game-waivers-custom-daily-waivers). **`waiver_day_of_week: 0`** is probably that clear day. UNVERIFIED whether 0 means Sunday or Monday, and the docs don't give an NBA processing hour. Football's example is "12:05 a.m. PST" on the day after the selected day. Check Settings → "After Games Waivers Clear" in the app.
+- **`daily_waivers: 0`:** Custom Daily Waivers is off, so there is no fixed daily processing time. Claims follow the drop clock and the game-start rules above (https://support.sleeper.com/en/articles/3242468-after-game-waivers-custom-daily-waivers).
+- **Practical upshot (inference):** Free agents can be added first-come until their NBA game tips. After tip-off they go on waivers until the clear day. A dropped player needs about 2 days to clear. We pick last on any contested claim.
+
+## Lock-In mode
+Source: https://support.sleeper.com/en/articles/6522833-lock-in-mode-details (dated Feb 18, 2026).
+- **Timing:** You lock after the game ends and before the player's next game starts. A lock can't be undone.
+- **Bench:** You can't lock a game the player didn't start; he "must be in your starting lineup before the game."
+- **No lock:** The player's team's final game of the week counts, and it doesn't fall back to an earlier game. A DNP or rest day in that final game scores **0**.
+- **After a lock:** A locked player can move between starting slots but can't go to the bench, so a lock uses up one starting slot for the rest of the week.
+- **Adds and trades:** A player added from waivers or free agency earns nothing from games played before the add. After a trade, only later games count, and a score already locked stays with the original team.
+- **0-game week:** There's no fallback score. A slot whose player has no game left scores 0 unless a finished game was locked. UNVERIFIED for a player with zero games all week, but by the "final game" rule it should be 0.
+- **API exposure:** In this league, `GET /v1/league/<id>/matchups/1` returns `points`, `starters`, `starters_points[]`, `players_points{}` and `custom_points` (all 0.0 before tip-off). docs.sleeper.com documents `points` and `custom_points` but not per-game or lock fields. There is no per-game breakdown or locked flag. **Checked Wed Oct 21, 13:43 CDT:** `players_points` equals the week's box score under our scoring for all 30 players who had played (one game each), bench players included (Edgecombe 15.5 on our bench), and each team's `points` equals the sum of its `starters_points`. So the API carries live scores in this league's scoring. Whether a starter's points show his locked game or his latest game is still **UNVERIFIED**: nobody had played twice. **Recheck Fri Oct 23 morning**, after Thursday's second games (LeBron, Edgecombe): any starter in the league whose `starters_points` equals an earlier game rather than his latest one exposes a lock; if every starter shows his latest game, locks aren't exposed.
+
+## Weekly median game (`league_average_match: 1`)
+Source: https://support.sleeper.com/en/articles/3971690-extra-game-each-week-against-league-median
+- Each week every team also gets a win above the median, a loss below it, or a tie exactly on it. In a 10-team league the median is the average of the 5th- and 6th-highest scores. It applies in the regular season only, not in playoffs or consolation games.
+- **Tiebreakers:** The default is Points For, then Points Against, then a coin toss or a metric the commissioner sets (https://support.sleeper.com/en/articles/5200797-how-do-tiebreakers-work, dated Apr 7, 2022). Median results count in the W-L record, which follows from the median article. It's UNVERIFIED whether head-to-head record between the tied teams is used. The page lists only PF and PA.
+
+## Trades
+- **`trade_review_days: 2`:** After all parties accept, the trade waits through a 2-day review period. If nobody vetoes it, it processes at the end of that period (midnight PST, per Sleeper's force-through article). Leaguemates see a veto-vote prompt if "Allow Trade Vetoes" is on, and the commissioner can veto or pass any trade at any time (https://support.sleeper.com/en/articles/3200544-can-i-veto-a-trade). The NBA "Trading Details" page still says vetoes aren't supported (https://support.sleeper.com/en/articles/4702096-trading-details); that's an older page. **Whether vetoes are enabled in this league is UNVERIFIED.** The setting isn't in the public API, so check League → Settings → Trades.
+- **`pick_trading: 0`:** Draft-pick trading is off. In redraft, picks can only be traded before that season's draft anyway (Trading Details, above).
+- **`trade_deadline: 18`:** The NBA article says "Your trade deadline is when the final game of that specific NBA week ends." Its own example contradicts that: "If you have Week 14 selected, this means you can trade up to and including Week 10's games" (https://support.sleeper.com/en/articles/4702014-when-is-my-trade-deadline). So the deadline is **either the end of week 18 or about 4 weeks earlier. UNVERIFIED; read the date shown in League → Settings.** A trade accepted before the deadline can still process after it during the review period.
+- Locked scores stay with the original team after a trade (Lock-In article above).

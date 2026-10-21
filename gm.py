@@ -1,0 +1,2863 @@
+#!/usr/bin/env python3
+"""In-season GM facts for a Sleeper NBA Lock-In league (private/config.json). Read-only: the Owner makes every move.
+
+Usage: ./gm.py [--date YYYY-MM-DD] [--refresh] <command>
+  roster [team]                 live roster: slot, status, board V/wk and FP/g, games this week
+  week [--week N]               Mon-Sun game grid, base lineup by expected locked score, bench rotation plan
+                                (with same-night slot reuse when two tips are 3 h+ apart)
+  lock [player score] [--game D] [--remaining N] [--play P] [--slot-of STARTER] [--locked A,B]
+                                LOCK or WAIT for the slot he occupies (refilled if unlocked); with no
+                                player, pending decisions from this week's box scores
+  lock player score --commit    record a lock you made in Sleeper (week, lock, fa, matchup then use it);
+  lock player --uncommit        undo a mistaken record. Records reset each week; --locked overrides them
+  fa [--pos X] [--top N]        board players on no roster vs our drop candidate, in league points;
+                                then Sleeper's trending adds, off-board 2026 scorers above replacement,
+                                the minutes radar (last-3 min/g >= season + 8) and the best 3 streams this week by team gain (ΔTeam, rotation included)
+  matchup [--week N]            opponent, points so far, board strength, median game, win odds (H2H, median)
+  review [--week N]             finished week (default: the last one), per slot: points counted vs the lock policy
+                                replayed on the same box scores vs hindsight, with each leak's cause
+  standings                     W-L incl. median games (regular season only), PF, playoff line
+  changes [--no-write]          diff vs private/state/gm-snapshot.json (only the GM advances it)
+  --test                        offline self-test
+Every command validates the live league first and prints REFUSING on any mismatch.
+"""
+import argparse, concurrent.futures, contextlib, datetime, functools, glob, io, itertools, json, math, os, random, re, sys, tempfile, time, urllib.request
+import draft
+import rebuild_board as rb
+
+HERE = draft.HERE
+CACHE = os.path.join(HERE, ".cache")
+STATE = os.path.join(draft.PRIVATE, "state")  # GM state worth backing up, unlike .cache
+SNAPSHOT = os.path.join(STATE, "gm-snapshot.json")
+TRENDING = "https://api.sleeper.app/v1/players/nba/trending/add?lookback_hours=24&limit=50"  # documented endpoint
+SCORING = rb.SCORING  # one table: the live validation must check the scoring the board was built with
+SLOTS = ["PG", "SG", "G", "SF", "PF", "F", "C", "UTIL", "UTIL"]
+ROSTER_POSITIONS = SLOTS + ["BN"] * 5
+MY_ROSTER = 4
+IR_OK = {"IR", "SUS", "DNR"}  # reserve_allow_out is 0: an Out player costs a bench spot
+DAY = "%a %m/%d"
+# 2025-26 backtest: regulars sit 8.3% of their next in-week game, 12.4% on a back-to-back's second night.
+# rebuild_board.lock_values ignores in-week DNPs and overstates waiting by 8-9%; lock calls use these.
+Q_DNP, Q_B2B = 0.08, 0.12
+# Sleeper DTD: play chance for his next game (on or after today), then for his later games this week.
+# 0.50 is the "Questionable" rate in the NBA's participation key (Probable 75%, Questionable 50%, Doubtful 25%;
+# nba.com/kings/blog/injury-kings-clippers); 0.75 ("Probable") for later games is a judgment, not measured.
+# ponytail: Sleeper's DTD lumps probable/questionable/doubtful, so 0.50 is a midpoint; the scout's news and
+# lock --play override it. Out stays 0 all week (fpg_of): no sourced return rate, so no partial-week credit.
+P_DTD = (0.50, 0.75)
+# Same-night slot reuse: a second roll in a slot when two tips that night are at least this far apart (an early game
+# runs about 2 1/4 h, leaving time to decide its score and swap). Backtest: +0.60 wins/20 wk at 3 h, 0.28 at 3.5 h
+# (reports/2026-10-20/slot-reuse.md).
+REUSE_GAP = datetime.timedelta(hours=3)
+MOVE_COST = 1.0  # FP a lock via another slot must add over locking in place: an extra lineup move to make and forget
+DTD = ("DTD", "GTD")  # Sleeper's game-time-decision tag gets the same discount
+# The official NBA injury report (a PDF every 15 minutes; official.nba.com lists the day's) overrides P_DTD for the
+# games it lists, by the same key; every status is capped at play_on's rate, so Available means a regular's 0.92.
+# Terms (nba.com/termsofuse, updated Jul 13 2026): personal, noncommercial download allowed; no automated-access or AI bar.
+INJURY_INDEX = "https://official.nba.com/nba-injury-report-{}-{:02d}-season/"
+P_REPORT = {"Available": 1.0, "Probable": 0.75, "Questionable": 0.50, "Doubtful": 0.25, "Out": 0.0}
+REPORT = {"at": "", "pids": {}}  # set by load: {"at": "10/20 10:45 ET", "pids": {pid: {date: status}}}
+# Tip times: ESPN's public scoreboard (undocumented; Owner-approved Oct 20 2026), UTC tips per ET game date.
+ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={:%Y%m%d}"
+ESPN_TEAM = {"GS": "GSW", "NO": "NOP", "NY": "NYK", "SA": "SAS", "UTAH": "UTA", "WSH": "WAS"}  # ESPN -> Sleeper
+CLOCK = {"now": None, "tips": {}}  # set by load: now = naive UTC (None on --date runs), tips = {(date, team): UTC tip}
+# fa shows a stream only if ΔTeam >= STREAM_MIN this week and beats STREAM_WEEKS x the season V/wk it costs.
+# ponytail: a stream's dropped player is usually gone for good, so 3 weeks is a rough horizon for his lost value,
+# not a measured one. Upgrade: price the drop over the weeks until he would be re-addable, if that's ever tracked.
+STREAM_MIN, STREAM_WEEKS = 5.0, 3
+# fa's minutes radar: last-3 min/g >= season avg + RADAR_MIN after RADAR_GAMES+ games. Backtest (reports/2026-10-20/
+# minutes-radar.md): such players (blend <= 35 FP/g) beat the blend's next-2-week FP/g by +6.4 (2025-26) and +5.8
+# (2024-25) vs +1.0 for all; L3 min x season FP/min cut RMSE 10.3 -> 8.6 but ran 2.5-3.1 FP/g high.
+RADAR_MIN, RADAR_GAMES = 8.0, 6
+
+
+# ---------- fetch and validate ----------
+
+def fetch(url, raw=False):
+    """api.sleeper.com endpoints are undocumented and want a browser User-Agent (so does official.nba.com)."""
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return r.read() if raw else json.load(r)
+
+
+def validate(cfg, league, rosters):
+    """Problems that make league facts untrustworthy; empty list means OK."""
+    league = league or {}
+    bad = []
+    if league.get("league_id") != cfg["league_id"] or league.get("sport") != "nba":
+        bad.append(f"league {league.get('league_id')} (sport {league.get('sport')}) is not config league {cfg['league_id']} (nba)")
+    scoring = {k: v for k, v in (league.get("scoring_settings") or {}).items() if v}
+    if scoring != SCORING:
+        bad.append(f"scoring is {scoring}, expected {SCORING}")
+    if league.get("roster_positions") != ROSTER_POSITIONS:
+        bad.append(f"roster_positions {league.get('roster_positions')}, expected {ROSTER_POSITIONS}")
+    st = league.get("settings") or {}
+    if st.get("reserve_allow_out") != 0 or st.get("reserve_slots") != 2:
+        bad.append(f"IR rules changed: reserve_allow_out={st.get('reserve_allow_out')}, reserve_slots={st.get('reserve_slots')}")
+    mine = [r for r in rosters or [] if r.get("roster_id") == MY_ROSTER]
+    if not mine or cfg["user_id"] not in [mine[0].get("owner_id")] + (mine[0].get("co_owners") or []):
+        bad.append(f"config user {cfg['user_id']} does not own roster_id {MY_ROSTER}")
+    return bad
+
+
+def refuse(bad):
+    if bad:
+        sys.exit("REFUSING: " + "; ".join(bad))
+
+
+def schedule(season):
+    """NBA schedule, cached once per day; degrade to the newest cached copy, else None with a visible note."""
+    os.makedirs(CACHE, exist_ok=True)
+    path = os.path.join(CACHE, f"schedule-{season}-{datetime.date.today()}.json")
+    if not os.path.exists(path):
+        try:
+            data = fetch(f"https://api.sleeper.com/schedule/nba/regular/{season}")
+            assert isinstance(data, list) and data, "empty schedule"
+            with open(path + ".tmp", "w") as f:
+                json.dump(data, f)
+            os.replace(path + ".tmp", path)
+        except (OSError, ValueError, AssertionError) as e:
+            old = sorted(glob.glob(os.path.join(CACHE, f"schedule-{season}-*.json")))
+            if not old:
+                print(f"NOTE: NBA schedule unavailable ({e}); game counts and rotation plan omitted.")
+                return None
+            print(f"NOTE: schedule fetch failed ({e}); using {os.path.basename(old[-1])}.")
+            path = old[-1]
+    with open(path) as f:
+        return json.load(f)
+
+
+def espn_tips(data):
+    """ESPN scoreboard JSON -> [[away, home, "YYYY-MM-DDTHH:MMZ"]] in Sleeper team codes."""
+    out = []
+    for e in data.get("events") or []:
+        side = {c["homeAway"]: c["team"]["abbreviation"] for c in e["competitions"][0]["competitors"]}
+        out.append([ESPN_TEAM.get(side["away"], side["away"]), ESPN_TEAM.get(side["home"], side["home"]), e["date"]])
+    return out
+
+
+def tip_times(sched, days):
+    """{(date, Sleeper team): naive UTC tip} for days, from ESPN cached per game date (refetched once a day; a failed
+    fetch keeps an older copy). Only games whose team pair is on Sleeper's schedule that date count; the rest of
+    Sleeper's games print a NOTE and keep date-level deadlines."""
+    def one(day):
+        path = os.path.join(CACHE, f"tips-{day}.json")
+        try:
+            if not (os.path.exists(path) and datetime.date.fromtimestamp(os.path.getmtime(path)) == datetime.date.today()):
+                games = espn_tips(fetch(ESPN.format(day)))
+                with open(path + ".tmp", "w") as f:
+                    json.dump(games, f)
+                os.replace(path + ".tmp", path)
+        except (OSError, ValueError, KeyError) as e:
+            if not os.path.exists(path):
+                return day, None, e
+        with open(path) as f:
+            return day, json.load(f), None
+
+    os.makedirs(CACHE, exist_ok=True)
+    tips, missing = {}, []
+    with concurrent.futures.ThreadPoolExecutor(7) as ex:
+        for day, games, err in ex.map(one, days):
+            want = {(g["away"]["team"], g["home"]["team"]) for g in sched or [] if g["date"] == day.isoformat()}
+            got = {(aw, h): datetime.datetime.strptime(t, "%Y-%m-%dT%H:%MZ") for aw, h, t in games or []}
+            for aw, h in want:
+                if (aw, h) in got:
+                    tips[(day, aw)] = tips[(day, h)] = got[(aw, h)]
+                else:
+                    missing.append(f"{day:%a} {aw}@{h}" + (f" ({err})" if err else ""))
+    if missing:
+        print(f"NOTE: no ESPN tip time for {len(missing)} game(s) ({', '.join(missing[:4])}"
+              + (", ..." if len(missing) > 4 else "") + "); their deadlines are date-level: check the tip time in Sleeper.")
+    return tips
+
+
+def ct(utc):
+    """Naive UTC -> US Central clock time. Python 3.8 has no zoneinfo, so the US DST rule by hand:
+    CDT (UTC-5) from 2 AM CST on March's second Sunday (08:00 UTC) to 2 AM CDT on November's first (07:00 UTC)."""
+    y = utc.year
+    start = datetime.datetime(y, 3, 8 + (6 - datetime.date(y, 3, 8).weekday()) % 7, 8)
+    end = datetime.datetime(y, 11, 1 + (6 - datetime.date(y, 11, 1).weekday()) % 7, 7)
+    return utc - datetime.timedelta(hours=5 if start <= utc < end else 6)
+
+
+def tip_text(day, team):
+    """"Wed 10/21 6:10 PM CT tip" from ESPN's tip time, else the date-level "Wed 10/21's tip"."""
+    t = CLOCK["tips"].get((day, team))
+    if not t:
+        return f"{day:{DAY}}'s tip"
+    c = ct(t)
+    return f"{c:{DAY}} {c.hour % 12 or 12}:{c:%M} {'AM' if c.hour < 12 else 'PM'} CT tip"
+
+
+def tipped(day, team):
+    """His team's game on day has tipped by the real clock (never on a --date dry run, which has no clock)."""
+    t = CLOCK["tips"].get((day, team))
+    return bool(t and CLOCK["now"] and t <= CLOCK["now"])
+
+
+def deadline(pool, pid, after, fills):
+    """When pid's finished score must be decided -> (day, team, who) or None: the earlier of his next tip (after:
+    his later game dates) and the slot's next tip in the plan (fills: slot_rest's [(day, who)]), because a score
+    must be decided before he leaves the slot. who is the player whose tip it is."""
+    team = lambda p: pool.get(p, {}).get("team")
+    opts = ([(after[0], pid)] if after else []) + fills[:1]
+    if not opts:
+        return None
+    day, who = min(opts, key=lambda o: (o[0], CLOCK["tips"].get((o[0], team(o[1]))) or datetime.datetime.min))
+    return day, team(who), who
+
+
+def pdf_words(data):
+    """PDF bytes -> per page [(y, x, word)] in PDF points (y up). pypdf is pure Python (~/.local here, not stdlib):
+    without it injury_report falls back to Sleeper tags."""
+    import pypdf
+    pages = []
+    for page in pypdf.PdfReader(io.BytesIO(data)).pages:
+        words = []
+
+        def visit(text, cm, tm, *_):
+            if text.strip():
+                m = pypdf.mult(tm, cm)
+                words.append((m[5], m[4], text.strip()))
+        page.extract_text(visitor_text=visit)
+        pages.append(words)
+    return pages
+
+
+def report_rows(pages):
+    """[(date iso, "First Last", status)] from the injury report's words (pages in order). Columns start at the
+    header's Player/Current/Reason x; a game date carries down to the rows below it, across pages."""
+    cols, day, out = None, None, []
+    for words in pages:
+        rows = {}
+        for y, x, w in words:
+            rows.setdefault(round(y), []).append((x, w))
+        for y in sorted(rows, reverse=True):
+            line = sorted(rows[y])
+            if {"Player", "Current", "Reason"} <= {w for _, w in line}:
+                cols = {w: x - 3 for x, w in line}
+                continue
+            if cols is None:
+                continue
+            day = next((w for x, w in line if x < cols["Player"] and re.fullmatch(r"\d\d/\d\d/\d{4}", w)), day)
+            name = " ".join(w for x, w in line if cols["Player"] <= x < cols["Current"])
+            st = " ".join(w for x, w in line if cols["Current"] <= x < cols["Reason"])
+            if day and "," in name and st:
+                last, first = name.split(",", 1)
+                out.append((datetime.datetime.strptime(day, "%m/%d/%Y").date().isoformat(), f"{first.strip()} {last.strip()}", st))
+    return out
+
+
+def injury_report(season, pool):
+    """Latest official NBA injury report into REPORT, each report parsed once to .cache/injury-<date>-<HHMM ET>.json.
+    If that fails: today's newest cached report, else a NOTE and Sleeper tags (REPORT stays empty)."""
+    try:
+        html = fetch(INJURY_INDEX.format(season, (season + 1) % 100), raw=True).decode("utf-8", "replace")
+        m = max(re.finditer(r'https://[^"\s]+/Injury-Report_(\d{4}-\d\d-\d\d)_(\d\d)_(\d\d)([AP]M)\.pdf', html),
+                key=lambda m: (m[1], m[4], int(m[2]) % 12, m[3]))
+        path = os.path.join(CACHE, f"injury-{m[1]}-{int(m[2]) % 12 + 12 * (m[4] == 'PM'):02d}{m[3]}.json")
+        if not os.path.exists(path):
+            rows = report_rows(pdf_words(fetch(m[0], raw=True)))
+            assert rows, f"no player rows parsed from {m[0]}"
+            with open(path + ".tmp", "w") as f:
+                json.dump(rows, f)
+            os.replace(path + ".tmp", path)
+    except Exception as e:  # network, no link yet, pypdf missing or a changed layout: all degrade to Sleeper tags
+        old = sorted(glob.glob(os.path.join(CACHE, f"injury-{datetime.date.today()}-*.json")))
+        if not old:
+            print(f"NOTE: NBA injury report unavailable ({e}); play chances use Sleeper tags "
+                  f"(DTD {P_DTD[0]:.2f} next game, {P_DTD[1]:.2f} later).")
+            return
+        print(f"NOTE: NBA injury report fetch failed ({e}); using {os.path.basename(old[-1])}.")
+        path = old[-1]
+    with open(path) as f:
+        rows = json.load(f)
+    by_name, pids = draft.name_index(pool), {}
+    for day, name, st in rows:  # ponytail: name-only match (name_index prefers rostered NBA players); add team if collisions bite
+        if draft.norm(name) in by_name and st in P_REPORT:
+            pids.setdefault(by_name[draft.norm(name)], {})[datetime.date.fromisoformat(day)] = st
+    t = re.search(r"injury-\d{4}-(\d\d)-(\d\d)-(\d\d)(\d\d)", path)
+    REPORT.update(at=f"{t[1]}/{t[2]} {t[3]}:{t[4]} ET", pids=pids)
+
+
+def board_values(notes):
+    """pid -> (V/wk, FP/g) parsed from board.txt notes; unprojected and excluded players are absent.
+    FP/g is the one behind V: a blended note's "-> X/g", else the ECR-calibrated "cal X/g", else the raw projection."""
+    out = {}
+    for pid, n in notes.items():
+        v = re.search(r"V\+([\d.]+)/wk", n)
+        g = re.search(r"-> ([\d.]+)/g", n) or re.search(r"\| cal ([\d.]+)/g", n) or re.search(r"\| ([\d.]+)/g", n)
+        if v and g and not n.startswith("DO NOT DRAFT"):
+            out[pid] = (float(v.group(1)), float(g.group(1)))
+    return out
+
+
+def out_all_week(st):
+    """Out, or an IR-eligible tag (IR/Sus/DNR) on an active-roster player: no games this week."""
+    return st == "Out" or st.upper() in IR_OK
+
+
+def fpg_of(d, pid):
+    """Board FP/g for the Lock-In math; an unprojected player, or one out all week, is 0."""
+    return 0.0 if out_all_week(status(d["pool"], pid)) else d["vals"].get(pid, (0, 0.0))[1]
+
+
+def load(a):
+    cfg = json.load(open(os.path.join(draft.PRIVATE, "config.json")))
+    lid = cfg["league_id"]
+    paths = {"league": f"/league/{lid}", "rosters": f"/league/{lid}/rosters",
+             "users": f"/league/{lid}/users", "state": "/state/nba"}
+    try:
+        with concurrent.futures.ThreadPoolExecutor(4) as ex:
+            futs = {k: ex.submit(draft.get, p) for k, p in paths.items()}
+            d = {k: f.result() for k, f in futs.items()}
+    except (OSError, ValueError) as e:
+        refuse([f"live Sleeper fetch failed ({e}); fresh advice unavailable"])
+    refuse(validate(cfg, d["league"], d["rosters"]))
+    pool = draft.players(refresh=a.refresh)
+    board, missing, notes = draft.load_board(pool)
+    today, sched = a.date or datetime.date.today(), schedule(d["league"]["season"])
+    week = getattr(a, "week", None) or (a.date and week_of(sched, today)) or d["state"]["week"]
+    d.update(cfg=cfg, pool=pool, board=board or [], notes=notes, vals=board_values(notes),
+             names={u["user_id"]: u["display_name"] for u in d["users"]}, today=today, week=week, sched=sched)
+    days = week_days(sched, week)
+    if days and not days[0] <= today <= days[-1] and a.cmd != "review":  # review reads a finished week
+        print(f"WARN: today {today:%a %m/%d} is outside week {week} ({days[0]:%a %m/%d} – {days[-1]:%a %m/%d}): "
+              f"days left, game counts and lock calls assume that week.")
+    d["team"] = {r["roster_id"]: d["names"].get(r["owner_id"], f"roster {r['roster_id']}") for r in d["rosters"]}
+    if missing:
+        print(f"NOTE: board.txt names not matched to Sleeper: {', '.join(missing)}")
+    if a.cmd not in ("standings", "changes", "review"):  # the commands that price play chances (review: as healthy)
+        injury_report(int(d["league"]["season"]), pool)
+    if a.cmd in ("week", "lock", "fa", "matchup") and sched:  # deadlines and feeds need tip times
+        CLOCK.update(now=None if a.date else datetime.datetime.utcnow(),
+                     tips=tip_times(sched, [day for day in days if day >= today]))
+    return d
+
+
+def board_basis(text, sched):
+    """"frozen Oct 19", or "blended through week N" from the in-season blend header rebuild_board writes."""
+    m = re.search(r"^# In-season blend:.*games through (\d{4}-\d{2}-\d{2})", text, re.M)
+    if not m:
+        return "frozen Oct 19"
+    day = datetime.date.fromisoformat(m.group(1))
+    week = week_of(sched, day)
+    return f"blended through week {week}" if week else f"blended through {day:%b %d}"
+
+
+def footer(d):
+    with open(os.path.join(HERE, "board.txt")) as f:
+        basis = board_basis(f.read(), d.get("sched"))
+    tags = draft.PLAYERS_PATH
+    tags = (f"{os.path.basename(tags)} fetched {datetime.datetime.fromtimestamp(os.path.getmtime(tags)):%m/%d %H:%M}"
+            if tags and os.path.exists(tags) else "(no tags file read)")
+    print(f"\nData: live Sleeper league/rosters (validated); player tags from {tags} "
+          f"(refetched when 3 h old; --refresh to force); board.txt V/FP from {basis}"
+          + (f"; play chances from the official NBA injury report {REPORT['at']} where it lists a game" if REPORT["at"] else "")
+          + f"; today={d['today']}.")
+
+
+# ---------- small helpers ----------
+
+def pos_of(pool, pid):
+    p = pool.get(pid, {})
+    return p.get("fantasy_positions") or [p.get("position") or "?"]
+
+
+def status(pool, pid):
+    return pool.get(pid, {}).get("injury_status") or ""
+
+
+def short(pool, pid, n=22):
+    if pid in (None, "0"):  # Sleeper's empty starter slot
+        return "empty slot"
+    return (pool.get(pid, {}).get("full_name") or pid)[:n]
+
+
+def week_games(sched, week):
+    """team -> {date: 'OPP' (home) or '@OPP' (away)} for one Sleeper week."""
+    out = {}
+    for g in sched or []:
+        if g["week"] == week:
+            day, h, aw = datetime.date.fromisoformat(g["date"]), g["home"]["team"], g["away"]["team"]
+            out.setdefault(h, {})[day] = aw
+            out.setdefault(aw, {})[day] = "@" + h
+    return out
+
+
+def week_days(sched, week):
+    dates = sorted({datetime.date.fromisoformat(g["date"]) for g in sched or [] if g["week"] == week})
+    if not dates:
+        return []
+    mon = dates[0] - datetime.timedelta(dates[0].weekday())
+    return [mon + datetime.timedelta(i) for i in range(7)]
+
+
+def week_of(sched, day):
+    """The schedule week whose Mon–Sun contains day, else None."""
+    return next((w for w in sorted({g["week"] for g in sched or []}) if day in week_days(sched, w)), None)
+
+
+def games_of(d, pid, wg):
+    """{date: opponent} for the player's NBA team this week ({} if none)."""
+    return wg.get(d["pool"].get(pid, {}).get("team"), {})
+
+
+def find_roster(d, key):
+    for r in d["rosters"]:
+        if str(r["roster_id"]) == str(key) or d["team"][r["roster_id"]].lower() == str(key).lower():
+            return r
+    sys.exit(f"No team matches {key!r}: " + ", ".join(d["team"].values()))
+
+
+# ---------- Lock-In math (rebuild_board's fitted model) ----------
+
+@functools.lru_cache(maxsize=None)
+def draws(ppg):
+    """Same per-game score grid as rebuild_board.lock_values (fitted CV curve, 200 normal quantiles)."""
+    cv = min(0.6, max(0.2, rb.CV_A + rb.CV_B * math.log(max(ppg, 1))))
+    return tuple(max(0.0, ppg * (1 + cv * z)) for z in rb.Z_GRID)
+
+
+def stop_value(days):
+    """Expected locked score for one slot by optimal stopping over chronological game days.
+
+    days: per day, the options for who fills the slot, as [(FP/g, play probability)]. Backward
+    induction: a day's value is the best option's p*E[max(X, V_next)] + (1-p)*V_next. With no lock the
+    final game counts (0 if he sits), hence V = 0 after the last day.
+    """
+    return _stop_value(tuple(map(tuple, days)))
+
+
+@functools.lru_cache(maxsize=1 << 16)  # trade.py's season simulation re-values the same slot weeks many times
+def _stop_value(days):
+    v = 0.0
+    for opts in reversed(days):
+        v = max([v] + [p * sum(max(x, v) for x in draws(g)) / len(rb.Z_GRID) + (1 - p) * v for g, p in opts])
+    return v
+
+
+def slot_options(days, mine, fpg, feeders):
+    """Per day, who can fill a slot: the starter on his game days (mine: {day: play chance}) plus each
+    bench feeder (FP/g, {game date: play chance}) who plays that day. Days without the starter are feeder-only."""
+    return [([(fpg, mine[day])] if day in mine else []) + [(g, dates[day]) for g, dates in feeders if day in dates]
+            for day in days]
+
+
+def play_on(day, dates):
+    """Chance a regular plays a game: 2025-26 backtest DNP rate, higher on the second night of a back-to-back."""
+    return 1 - (Q_B2B if day - datetime.timedelta(1) in dates else Q_DNP)
+
+
+def play_map(dates, st="", today=None, pid=None):
+    """{game date: chance he plays}: play_on's rule, lowered for a DTD player's next game on or after today
+    (P_DTD[0]) and his later ones (P_DTD[1]); a game the NBA injury report lists for pid takes P_REPORT instead.
+    Week's `games` holds these maps, so `day in games[p]` still works."""
+    out = {day: play_on(day, dates) for day in dates}
+    if st in DTD:
+        for k, day in enumerate(sorted(day for day in dates if today is None or day >= today)):
+            out[day] = min(out[day], P_DTD[0] if k == 0 else P_DTD[1])
+    for day, s in REPORT["pids"].get(pid, {}).items():
+        if day in out:
+            out[day] = min(play_on(day, dates), P_REPORT[s])
+    return out
+
+
+def stop_moments(days):
+    """stop_value's policy (lock when the score reaches the value of waiting) -> (mean, second moment)
+    of the slot's locked score, by the same backward induction."""
+    v = v2 = 0.0
+    for opts in reversed(days):
+        best = (v, v2)
+        for g, p in opts:
+            xs = draws(g)
+            m = p * sum(max(x, v) for x in xs) / len(xs) + (1 - p) * v
+            if m > best[0]:
+                best = (m, p * sum(x * x if x >= v else v2 for x in xs) / len(xs) + (1 - p) * v2)
+        v, v2 = best
+    return v, v2
+
+
+def wait_value(ppg, plays):
+    """DNP-corrected continuation over his remaining games (plays: chance he plays each one).
+    V1 = (1-q)E[X]; Vk = (1-q)E[max(X, V(k-1))] + q V(k-1). q = 0 is rebuild_board.lock_values."""
+    return stop_value([[(ppg, p)] for p in plays])
+
+
+def thresholds(ppg, q=None, n=5):
+    """Score needed to lock with k = 1..n games left (default q: Q_DNP)."""
+    q = Q_DNP if q is None else q
+    return [wait_value(ppg, [1 - q] * k) for k in range(1, n + 1)]
+
+
+def best_lineup(players, value, slots=SLOTS):
+    """Exact max-value legal lineup. players: [(pid, positions)]; at most C(14, 9) = 2002 subsets."""
+    players = [p for p in players if value.get(p[0], 0) > 0] or players
+    for r in range(min(len(slots), len(players)), 0, -1):
+        best, best_sum = None, -1.0
+        for combo in itertools.combinations(players, r):
+            total = sum(value.get(p[0], 0) for p in combo)
+            if total <= best_sum:  # can't win: skip the slot fit (same result, ~10x faster for fa's stream search)
+                continue
+            fit = draft.fill_slots(slots, list(combo))
+            if len(fit) == r:
+                best, best_sum = fit, total
+        if best is not None:
+            return best
+    return {}
+
+
+def keep_slots(base, sleeper, fixed, pos):
+    """base's players re-slotted so the most Sleeper starters keep their Sleeper slot (same players, same
+    expected score): the moves to reach it are then only the slots whose occupant changes. fixed: {slot: pid}
+    always kept (locked players). At most 2^9 small matchings, and only when starters are set."""
+    keep = [(i, p) for i, p in sleeper.items() if i not in fixed and p in base.values()]
+    for r in range(len(keep), -1, -1):
+        for pins in itertools.combinations(keep, r):
+            pinned = {**fixed, **dict(pins)}
+            rest = [p for p in base.values() if p not in pinned.values()]
+            free = [i for i in range(len(SLOTS)) if i not in pinned]
+            fit = draft.fill_slots([SLOTS[i] for i in free], [(p, pos[p]) for p in rest])
+            if len(fit) == len(rest):
+                return {**pinned, **{free[j]: p for j, p in fit.items()}}
+    return base
+
+
+def rotation(slots, base, bench, games, days, pos, fpg, blocked=(), gone=()):
+    """Day by day, put each bench player who plays (best first) into the idle-starter slot where his game
+    adds the most expected locked score for the week. Locked (blocked) slots take no feeds, and a bench player
+    whose game has tipped ((pid, day) in gone) can't be moved in.
+
+    base: {slot_index: pid}; bench: pids; games: {pid: {date: play chance}} (play_map). Returns {day: {slot_index: pid}}.
+    """
+    # ponytail: greedy by marginal gain, not a joint optimum; benching a playing starter is left to judgment.
+    plan = {day: {} for day in days}
+
+    def value(i):
+        return stop_value(slot_days(days, base.get(i), {day: plan[day][i] for day in days if i in plan[day]}, games, fpg))
+
+    for day in days:
+        for p in sorted((p for p in bench if day in games.get(p, ()) and (p, day) not in gone), key=lambda p: -fpg.get(p, 0)):
+            best, best_gain = None, 1e-9
+            for i in range(len(slots)):
+                if (i in blocked or i in plan[day] or plays(base.get(i), day, games, fpg)
+                        or not draft.SLOT_ELIGIBLE[slots[i]] & set(pos[p])):
+                    continue
+                before = value(i)
+                plan[day][i] = p
+                gain = value(i) - before
+                del plan[day][i]
+                if gain > best_gain:
+                    best, best_gain = i, gain
+            if best is not None:
+                plan[day][best] = p
+        # Seat the rest in any idle slot they fit, even at no gain to that slot alone: a bench score can be locked
+        # against a cheaper slot it reaches (joint_locks), so an extra roll is never worthless (issue #26).
+        rest = [p for p in bench if plays(p, day, games, fpg) and (p, day) not in gone and p not in plan[day].values()]
+        idle = [i for i in range(len(slots)) if i not in blocked and i not in plan[day] and not plays(base.get(i), day, games, fpg)]
+        fit = draft.fill_slots([slots[i] for i in idle], [(p, pos[p]) for p in rest])
+        plan[day].update({idle[j]: p for j, p in fit.items()})
+    return plan
+
+
+def reuse(slots, base, bench, games, days, pos, fpg, plan, tips, blocked=(), gone=()):
+    """Same-night slot reuse after rotation's plan: a bench player who plays a day but feeds no slot takes a slot
+    whose roll that day tips at least REUSE_GAP from his own tip, before it (he plays early, the slot's player
+    returns for the late tip) or after it (the slot's early game is final and decided, then he goes in).
+    tips: {(pid, day): naive UTC tip}; no tip time, no reuse. Returns {day: {slot_index: (pid, late)}}."""
+    # ponytail: greedy on top of rotation's greedy plan, at most one extra roll per slot per night; the
+    # backtest measured this version. Upgrade: plan jointly if 3-tip nights (weekend afternoons) show up often.
+    extra = {day: {} for day in days}
+
+    def value(i):
+        feeds = {day: plan[day][i] for day in days if i in plan[day]}
+        return stop_value(slot_days(days, base.get(i), feeds, games, fpg, {day: extra[day][i] for day in days if i in extra[day]}))
+
+    for day in days:
+        for p in sorted((p for p in bench if plays(p, day, games, fpg) and (p, day) not in gone
+                         and p not in plan[day].values() and tips.get((p, day))), key=lambda p: -fpg.get(p, 0)):
+            t, best, best_gain = tips[(p, day)], None, 1e-9
+            for i in range(len(slots)):
+                occ = slot_who(day, base.get(i), {day: plan[day][i]} if i in plan[day] else {}, games, fpg)
+                if (i in blocked or i in extra[day] or occ is None or not tips.get((occ, day))
+                        or abs(t - tips[(occ, day)]) < REUSE_GAP or not draft.SLOT_ELIGIBLE[slots[i]] & set(pos[p])):
+                    continue
+                before = value(i)
+                extra[day][i] = (p, t > tips[(occ, day)])
+                gain = value(i) - before
+                del extra[day][i]
+                if gain > best_gain:
+                    best, best_gain = i, gain
+            if best is not None:
+                extra[day][best] = (p, t > tips[(slot_who(day, base.get(best), {day: plan[day][best]} if best in plan[day] else {},
+                                                          games, fpg), day)])
+    return extra
+
+
+def plays(p, day, games, fpg):
+    """A scheduled roll with nonzero play chance and FP/g; ruled-out games leave the slot idle."""
+    return games.get(p, {}).get(day, 0) > 0 and fpg.get(p, 0) > 0
+
+
+def slot_who(day, starter, feeds, games, fpg):
+    """Who fills a slot on a day: its starter on his game days, else that day's feeder (or None)."""
+    return starter if plays(starter, day, games, fpg) else feeds.get(day)
+
+
+def slot_days(days, starter, feeds, games, fpg, extra=None):
+    """Per-day options for one slot: its starter on his game days, else that day's feeder; plus a same-night
+    reuse roll (extra: {day: (pid, late)}) after that roll when late, else before it."""
+    out = []
+    for day in days:
+        who = slot_who(day, starter, feeds, games, fpg)
+        rolls = [who] if who else []
+        if extra and day in extra:
+            q, late = extra[day]
+            rolls = rolls + [q] if late else [q] + rolls
+        out += [[(fpg.get(p, 0.0), games[p][day])] for p in rolls] or [[]]
+    return out
+
+
+def feeds_of(w, i):
+    """Slot i's rotation feeds {day: pid} and same-night reuse rolls {day: (pid, late)} over the days left."""
+    return ({day: w["plan"][day][i] for day in w["left"] if i in w["plan"][day]},
+            {day: w["extra"][day][i] for day in w["left"] if i in w.get("extra", {}).get(day, {})})
+
+
+def slot_rest(w, i, after, pid=None):
+    """Slot i after pid's finished game on day after -> (wait value, [(day, who)]).
+    Allow available bench players to replace a playing occupant too: the live occupant may be yesterday's
+    feeder, not the player who should return. Do not steal a feeder already assigned to another slot, or feed a
+    bench player whose game has tipped. On a night with a same-night reuse roll in slot i, the plan's two rolls
+    count in tip order, and on pid's own night only the roll that tips after his game."""
+    if i in w["blocked"]:
+        return 0.0, []
+    days = [day for day in w["left"] if day > after]
+    cutoff = max(w["today"], after + datetime.timedelta(1))
+    games = {p: play_map(gm, w["statuses"][p], cutoff, p) for p, gm in w["games"].items()}
+    for p, override in w.get("game_overrides", {}).items():
+        if p in games:
+            games[p].update(override)
+    games_on = lambda day: w["games"] if day == after else games  # the cutoff drops a DTD discount on pid's own night
+    s, elig = w["base"].get(i), draft.SLOT_ELIGIBLE[SLOTS[i]]
+    value, fills = 0.0, []
+
+    def expected(p, day):
+        probability = games_on(day)[p][day]
+        return probability * sum(max(x, value) for x in draws(w["fpg"][p])) / len(rb.Z_GRID) + (1 - probability) * value
+
+    def rolls(day):
+        """The plan's rolls in slot i on a reuse night, latest tip first (backward induction)."""
+        q, late = w["extra"][day][i]
+        occ = slot_who(day, s, {day: w["plan"][day][i]} if i in w["plan"][day] else {}, games_on(day), w["fpg"])
+        return [p for p in ([q, occ] if late else [occ, q]) if p and plays(p, day, games_on(day), w["fpg"])]
+
+    for day in reversed(days):
+        if i in w.get("extra", {}).get(day, {}):
+            for who in rolls(day):
+                value = expected(who, day)
+                fills.append((day, who))
+            continue
+        assigned = {p for j, p in w["plan"][day].items() if j != i} | {q for j, (q, _) in w.get("extra", {}).get(day, {}).items() if j != i}
+        candidates = [s] + [p for p in w["bench"] if p not in assigned and elig & set(w["pos"][p])
+                            and (p, day) not in w.get("tipped", ())]
+        available = [p for p in candidates if plays(p, day, games, w["fpg"])]
+        who = max(available, key=lambda p: expected(p, day), default=None)
+        if who is not None:
+            value = expected(who, day)
+            fills.append((day, who))
+    if i in w.get("extra", {}).get(after, {}):
+        later = rolls(after)
+        later = later[:later.index(pid)] if pid in later else later[:1]  # the rolls after pid's (the late one)
+        for who in later:
+            value = expected(who, after)
+            fills.append((after, who))
+    return value, list(reversed(fills))
+
+
+def lanes_after(w, day, occ=None):
+    """Each open slot after day's games -> {i: (occupant on day, wait value, fills)}. occ: {i: pid} known
+    occupants (a box score's starter); otherwise the plan's (slot_who)."""
+    out = {}
+    for i in range(len(SLOTS)):
+        if i in w["blocked"]:
+            continue
+        feeds = w["plan"].get(day, {})
+        who = (occ or {}).get(i) or slot_who(day, w["base"].get(i), {day: feeds[i]} if i in feeds else {}, w["games"], w["fpg"])
+        out[i] = (who,) + slot_rest(w, i, day, who)
+    return out
+
+
+def feed_reach(w, lanes):
+    """{i: {j}}: for each bench player's score (occupant not the slot's base starter, with later players in his
+    slot), the other open slots it can close. One hop: lock him in slot i, every later player of slot i moves to
+    slot j whole (each must be eligible for it), and j's starter goes to the bench. A last roll counts in place."""
+    fits = lambda p, j: draft.SLOT_ELIGIBLE[SLOTS[j]] & set(w["pos"].get(p, ()))
+    return {i: {j for j in lanes if j != i and all(fits(p, j) for _, p in fills)}
+            for i, (who, _, fills) in lanes.items() if who and who != w["base"].get(i) and fills}
+
+
+def joint_locks(feeds, prices, reach):
+    """Which bench scores to lock, and which slot each closes. feeds: {i: score} in slot i; prices: {j: price},
+    an open slot's wait value (or its starter's standing score, if higher); reach: feed_reach. Locking feed i
+    closes slot i or a slot it reaches; each slot is touched once. Maximizes sum(score - price), less MOVE_COST per
+    lock in another slot: with free reach, the best score takes the cheapest slot, the next the next-cheapest
+    (issue #26) -> {i: j}."""
+    order = sorted(feeds, key=lambda i: (-feeds[i], i))
+    best = [(0.0, 0), {}]
+
+    def go(k, used, chosen, gain):
+        key = (round(gain, 9), len(chosen))  # ties lock, as stop_value does
+        if key > best[0]:
+            best[:] = [key, dict(chosen)]
+        if k == len(order):
+            return
+        go(k + 1, used, chosen, gain)
+        i = order[k]
+        for j in ([] if i in used else [i] + sorted(reach.get(i, ()))):
+            if j not in used and j in prices and feeds[i] >= prices[j]:
+                chosen[i] = j
+                go(k + 1, used | {i, j}, chosen, gain + feeds[i] - prices[j] - (MOVE_COST if j != i else 0))
+                del chosen[i]
+
+    go(0, frozenset(), {}, 0.0)
+    return best[1]
+
+
+def game_fp(stats):
+    s = dict(stats)
+    s.setdefault("ftmi", s.get("fta", 0) - s.get("ftm", 0))
+    return sum(s.get(k, 0) * w for k, w in SCORING.items())
+
+
+# ---------- commands ----------
+
+def play_note(st, pm, today, pid=None):
+    """The play chances the math uses for a tagged or injury-report-listed player's games from today on, with
+    their source once the report loaded ("" if untagged and listed at most Available)."""
+    rep = REPORT["pids"].get(pid, {})
+    if not st and set(rep.values()) <= {"Available"}:
+        return ""
+    if out_all_week(st):
+        return f"play 0 all week ({st})"
+    days = [day for day in sorted(pm) if day >= today]
+    src = (f" (NBA report {REPORT['at']})" if any(day in rep for day in days) else
+           f" (Sleeper tag; not on NBA report {REPORT['at']})" if REPORT["at"] else "")
+    return "play " + (" ".join(f"{day:%a} {pm[day]:.2f}" + (f" {rep[day]}" if day in rep else "") for day in days)
+                      or "no games left") + src
+
+
+def slot_warnings(slot, name, st, n_reserve):
+    """Roster WARN lines for one player in a slot (BN, IR or a starting slot) with Sleeper status st."""
+    warn = []
+    if st == "Out" and slot == "BN":
+        warn.append(f"{name} is Out on the bench: costs a bench spot (IR takes only IR/Sus/DNR)")
+    if st.upper() in IR_OK and slot != "IR":
+        warn.append(f"{name} is {st} but not on IR: move to IR to free a spot ({2 - n_reserve} IR open)")
+    if slot == "IR" and st.upper() not in IR_OK:
+        warn.append(f"{name} on IR but status {st or 'healthy'}: Sleeper blocks adds until he's moved off IR "
+                    f"(unverified), and he needs a bench spot")
+    if st and slot not in ("BN", "IR"):
+        warn.append(f"{name} starts at {slot} with status {st}: confirm before tip")
+    return warn
+
+
+def cmd_roster(d, a):
+    r = find_roster(d, a.team) if a.team else find_roster(d, MY_ROSTER)
+    pool, wg = d["pool"], week_games(d["sched"], d["week"])
+    starters, reserve = r.get("starters") or [], r.get("reserve") or []
+    bench = [p for p in r["players"] if p not in starters and p not in reserve]
+    rank = {pid: i for i, pid in enumerate(d["board"], 1)}
+    print(f"{d['team'][r['roster_id']]} (roster {r['roster_id']}) — week {d['week']} — "
+          f"{len(r['players'])} players, IR {len(reserve)}/2")
+    print(f"  {'Slot':<5}{'Player':<23}{'Pos':<10}{'Team':<5}{'Status':<8}{'Board':>6}{'V/wk':>6}{'FP/g':>6}  Games this week")
+    rows = [(SLOTS[i] if i < len(SLOTS) else "?", p) for i, p in enumerate(starters)] + \
+           [("BN", p) for p in bench] + [("IR", p) for p in reserve]
+    warn = []
+    for slot, pid in rows:
+        if pid in ("0", None):
+            print(f"  {slot:<5}— EMPTY —")
+            warn.append(f"{slot} is empty")
+            continue
+        v, g = d["vals"].get(pid, (None, None))
+        gm = games_of(d, pid, wg)
+        days = " ".join(day.strftime("%a") for day in sorted(gm)) if d["sched"] else "?"
+        st = status(pool, pid)
+        note = play_note(st, play_map(gm, st, d["today"], pid), d["today"], pid) if d["sched"] else ""
+        print(f"  {slot:<5}{short(pool, pid):<23}{'/'.join(pos_of(pool, pid)):<10}"
+              f"{pool.get(pid, {}).get('team') or 'FA':<5}{st or '-':<8}{('#' + str(rank[pid])) if pid in rank else '-':>6}"
+              f"{f'{v:.1f}' if v is not None else 'NOPROJ':>6}{f'{g:.1f}' if g is not None else '':>6}  "
+              f"{len(gm) if d['sched'] else '?'} {days}"
+              + (f"  | {note}" if note else ""))
+        warn += slot_warnings(slot, short(pool, pid), st, len(reserve))
+    for w in warn:
+        print("WARN: " + w)
+    footer(d)
+
+
+def week_context(d, sleeper_base=False, rid=MY_ROSTER):
+    """A team's (default the Owner's) players, this week's games, base lineup by expected locked score, and
+    the rotation plan. sleeper_base: keep Sleeper's lineup as the base (lock calls judge the slots as they stand)."""
+    pool, r = d["pool"], find_roster(d, rid)
+    wg, days = week_games(d["sched"], d["week"]), week_days(d["sched"], d["week"])
+    left = [day for day in days if day >= d["today"]]
+    reserve = r.get("reserve") or []
+    active = [p for p in r["players"] if p not in reserve]
+    adds = d.get("adds") or {}  # {pid: first date that counts}: after an add only later games score
+    games = {p: play_map({day: o for day, o in games_of(d, p, wg).items() if day >= adds.get(p, day)},
+                         status(pool, p), d["today"], p) for p in active}
+    for p, override in d.get("game_overrides", {}).items():
+        if p in games:
+            games[p].update(override)
+    fpg = {p: fpg_of(d, p) for p in active}
+    exp = {p: wait_value(fpg[p], [games[p][day] for day in left if day in games[p]]) for p in active}
+    sleeper = {i: p for i, p in enumerate(r.get("starters") or []) if p in active}
+    locked = set(d.get("locked") or []) & set(active)  # pids, from locked_pids
+    base = {i: p for i, p in sleeper.items() if p in locked}  # a locked player stays in his slot; the rest is re-optimized
+    free = [i for i in range(len(SLOTS)) if i not in base]
+    fit = best_lineup([(p, pos_of(pool, p)) for p in active if p not in locked], exp, [SLOTS[i] for i in free])
+    base.update({free[j]: p for j, p in fit.items()})
+    base = keep_slots(base, sleeper, {i: p for i, p in base.items() if p in locked}, {p: pos_of(pool, p) for p in active})
+    gain = sum(exp[p] for p in base.values()) - sum(exp[p] for p in sleeper.values())
+    if gain < 2.0 or sleeper_base:  # within noise: keep Sleeper's slots so the plan matches the app
+        base = sleeper
+    blocked = {i for i, p in base.items() if p in locked}  # a locked player keeps his slot all week
+    starters = set(base.values())
+    bench = sorted((p for p in active if p not in starters and p not in locked), key=lambda p: -fpg[p])
+    gone = {(p, day) for p in bench for day in left if day in games[p] and tipped(day, pool.get(p, {}).get("team"))}
+    pos = {p: pos_of(pool, p) for p in active}
+    plan = rotation(SLOTS, base, bench, games, left, pos, fpg, blocked, gone)
+    tips = {(p, day): CLOCK["tips"].get((day, pool.get(p, {}).get("team"))) for p in active for day in games[p]}
+    extra = reuse(SLOTS, base, bench, games, left, pos, fpg, plan, tips, blocked, gone)
+    return dict(blocked=blocked, tipped=gone, gain=gain, r=r, wg=wg, days=days, left=left, games=games, fpg=fpg, exp=exp, base=base, bench=bench, plan=plan,
+                extra=extra,
+                today=d["today"], statuses={p: status(pool, p) for p in active},
+                pos={p: pos_of(pool, p) for p in active}, game_overrides=d.get("game_overrides", {}))
+
+
+def cmd_week(d, a):
+    if not d["sched"]:
+        print("Schedule unavailable: no game grid or rotation plan. Use Sleeper's schedule view.")
+        return footer(d)
+    d["locked"] = locked_pids(d, a.locked)
+    pool, w = d["pool"], week_context(d)
+    days, plan, base, games, fpg = w["days"], w["plan"], w["base"], w["games"], w["fpg"]
+    if not days:
+        print(f"No NBA games in week {d['week']}.")
+        return footer(d)
+    now = {p: (SLOTS[i] if i < len(SLOTS) else "?") for i, p in enumerate(w["r"].get("starters") or [])}
+    print(f"Week {d['week']}: {days[0].strftime(DAY)} – {days[-1].strftime(DAY)} | today {d['today'].strftime(DAY)} | "
+          f"{len(w['left'])} days left")
+    print(f"  {'Base':<5}{'Player':<20}{'Now':<5}{'G':>2} " + "".join(f"{day.strftime('%a'):<6}" for day in days) + "E(left)")
+    order = [base[i] for i in sorted(base)] + w["bench"]
+    for p in order:
+        slot = next(("LOCK" if i in w["blocked"] else SLOTS[i] for i, q in base.items() if q == p), "BN")
+        gm = games_of(d, p, w["wg"])
+        cells = "".join(f"{gm.get(day, '.'):<6}" for day in days)
+        st = f" [{status(pool, p)}]" if status(pool, p) else ""
+        print(f"  {slot:<5}{(short(pool, p, 19 - len(st)) + st):<20}{now.get(p, 'BN'):<5}{len(gm):>2} {cells}{w['exp'][p]:.1f}")
+    notes = [f"{short(pool, p)} [{status(pool, p) or 'NBA report'}] {n}" for p in order
+             for n in [play_note(status(pool, p), games[p], d["today"], p)] if n]
+    if notes:
+        print("Play chance used for tagged players: " + "; ".join(notes))
+    sleeper = dict(enumerate(w["r"].get("starters") or []))
+    swaps = [(i, p) for i, p in sorted(base.items()) if sleeper.get(i) != p]  # every slot that changes: the full move set
+    if swaps:
+        print(f"Base lineup changes vs Sleeper (+{w['gain']:.1f} expected locked FP with games left; make all of them):")
+        for i, p in swaps:
+            old = sleeper.get(i)
+            print((f"  move {short(pool, p)} from {now[p]} to {SLOTS[i]}" if p in now else
+                   f"  start {short(pool, p)} ({w['exp'][p]:.1f}) at {SLOTS[i]}")
+                  + (f" (for {short(pool, old)})" if old not in (None, "0") else ""))
+    print("Rotation plan (move bench player into the slot before tip on days its starter is idle; "
+          "keep the score only if it beats the lock threshold):")
+    for day in w["left"]:
+        moves = [f"{short(pool, p)}→{SLOTS[i]}" + (f" (for {short(pool, base[i])})" if i in base else "")
+                 for i, p in sorted(plan[day].items())]
+        playing = [short(pool, base[i]) for i in sorted(base) if plays(base[i], day, games, fpg)]
+        print(f"  {day.strftime(DAY)}: starters playing {len(playing)}" + (f"; feed {', '.join(moves)}" if moves else ""))
+        for i, (q, late) in sorted(w["extra"][day].items()):
+            occ = slot_who(day, base.get(i), {day: plan[day][i]} if i in plan[day] else {}, games, fpg)
+            first, then = (occ, q) if late else (q, occ)
+            team = lambda p: pool.get(p, {}).get("team")
+            print(f"    same night, {SLOTS[i]}: {short(pool, first)} plays the {tip_text(day, team(first))}; once that game is final, "
+                  f"decide his score (lock or pass), then put {short(pool, then)} in {SLOTS[i]} before the "
+                  f"{tip_text(day, team(then)).split(' ', 2)[2]}" + (f" ({short(pool, q)} starts {SLOTS[i]} before the early tip)" if not late else ""))
+    tot_alone = tot_rot = tot_reuse = 0.0
+    flags, tonight, pooled = [], [], False
+    lanes = lanes_after(w, w["left"][0]) if w["left"] else {}
+    reach = feed_reach(w, lanes)
+    for i, s in sorted(base.items()):
+        if i in w["blocked"]:
+            continue
+        feeds, extra = feeds_of(w, i)
+        alone = stop_value(slot_days(w["left"], s, {}, games, fpg))
+        with_rot = stop_value(slot_days(w["left"], s, feeds, games, fpg))
+        with_reuse = stop_value(slot_days(w["left"], s, feeds, games, fpg, extra))
+        tot_alone, tot_rot, tot_reuse = tot_alone + alone, tot_rot + with_rot, tot_reuse + with_reuse
+        first = w["left"][0] if w["left"] else None
+        who = slot_who(first, s, feeds, games, fpg)
+        q, late = extra.get(first, (None, True))
+        for who in [p for p in ([who, q] if late else [q, who]) if p]:
+            # tonight's lock line: the slot's wait value over the rest of the week, with the plan's feeds
+            rest, fills = slot_rest(w, i, first, who)
+            due = deadline(pool, who, sorted(day for day in games[who] if day > first), fills)
+            # a bench score can also close a cheaper idle slot its slot's later players can move into
+            alts = sorted((lanes[j][1] + MOVE_COST, j) for j in reach.get(i, ()) if who == lanes[i][0]
+                          and lanes[j][0] != base.get(j) and lanes[j][1] + MOVE_COST < rest)
+            tonight.append(f"{short(pool, who)} ({SLOTS[i]}{'' if who == s else ' for ' + short(pool, s)}) ≥ {rest:.1f}"
+                           + "".join(f" or ≥ {x:.1f} via {SLOTS[j]}" + (f" ({short(pool, base[j])}'s)" if j in base else "")
+                                     for x, j in alts)
+                           + (f" before {tip_text(*due[:2])}" + ("" if due[2] == who else f" ({short(pool, due[2])} in)")
+                              if due else ""))
+            pooled = pooled or bool(alts)
+        n = len([day for day in w["left"] if plays(s, day, games, fpg)])
+        if n <= 1:
+            flags.append(f"{SLOTS[i]} {short(pool, s)} has {n} game left" + (": no lock choice" if n == 1 else ": slot scores 0 unless fed"))
+    if tonight:
+        print(f"Lock lines for {w['left'][0].strftime(DAY)}'s games (lock if the score reaches it, before the slot's next tip; \"X in\": the plan moves X into it): "
+              + "; ".join(tonight))
+    if pooled:
+        print("Bench scores share the cheaper slots (\"via\"): rank tonight's bench scores; the best takes the lowest line it "
+              "reaches, the next the next-lowest (a \"via\" line includes 1 FP for the extra move). Locking one via another slot: before that slot's next tip, move his slot's "
+              "next player into it and bench its starter. ./gm.py lock decides them jointly once games are final.")
+    open_slots = "base 9" if not w["blocked"] else f"{len(base) - len(w['blocked'])} unlocked slots"
+    in_locked = {base[i] for i in w["blocked"]}
+    locked_pts = sum(x for p, x in saved_locks(d).items() if p in in_locked) if a.locked is None else 0.0
+    print(f"Expected locked score, {open_slots}: {tot_alone:.1f}; with rotation {tot_reuse:.1f} (+{tot_reuse - tot_alone:.1f} FP this week"
+          + (f", same-night reuse +{tot_reuse - tot_rot:.1f} of it" if tot_reuse > tot_rot + 0.05 else "") + ")"
+          + (f"; plus {locked_pts:.1f} already locked = {tot_reuse + locked_pts:.1f} for the week" if locked_pts else ""))
+    if any(w["extra"].values()):
+        print("NOTE: same-night swaps need the early game final before the late tip; skip one if it runs long. Their gain "
+              "above is the model's; real 2025-26 scores paid about 4x it (reports/2026-10-20/slot-reuse.md).")
+    if w["left"] == days[-1:]:
+        print("NOTE: last day: the gains above assume every earlier unlocked score is below its lock line, since an idle "
+              "starter's already-played unlocked game counts as 0 here, but in Sleeper it stands unless his slot plays "
+              "today. Record locks with ./gm.py lock \"<player>\" <score> --commit.")
+    if not w["blocked"]:
+        print("No slot locked yet. After you lock in Sleeper, record it: ./gm.py lock \"<player>\" <score> --commit "
+              "(a locked player keeps his slot and can't feed).")
+    elif a.locked is None:
+        print("Locked this week (recorded with lock --commit; --locked overrides): "
+              + ", ".join(f"{short(pool, p)} {x:.1f}" for p, x in saved_locks(d).items() if p in d["locked"]))
+    for f in flags:
+        print("FLAG: " + f)
+    footer(d)
+
+
+def lock_report(name, score, fpg, plays, slot=None):
+    """plays: chance he plays each remaining game, in order. slot: (wait value, description, upper bound)
+    of the slot he occupies; when given it decides the verdict, since an unlocked slot is refilled."""
+    cont, n_left = wait_value(fpg, plays), len(plays)
+    own = f"{score:.1f} FP vs board {fpg:.1f} FP/g, {n_left} game(s) left"
+    if slot is None:
+        verdict = "LOCK (or leave it: his final game counts anyway)" if n_left == 0 else "LOCK" if score >= cont else "WAIT"
+        return [f"{name}: {own} → {verdict} (wait value {cont:.1f})"]
+    s_cont, desc, upper = slot[:3]
+    verdict = "LOCK (nothing left fills this slot)" if s_cont == 0 else "LOCK" if score >= s_cont else "WAIT"
+    lines = [f"{name}: {score:.1f} FP → {verdict} (slot wait value {s_cont:.1f}: {desc})",
+             f"  his own games only: {own}, wait value {cont:.1f}"]
+    if upper > s_cont + 0.05:
+        lines.append(f"  if every eligible bench player fed only this slot: wait value {upper:.1f}")
+    return lines
+
+
+def dtd_free(d):
+    """d with every DTD/GTD tag cleared, so play_map applies no P_DTD discount."""
+    return dict(d, pool={p: dict(v, injury_status="") if v.get("injury_status") in DTD else v for p, v in d["pool"].items()})
+
+
+def dtd_flip(score, value, healthy):
+    """Note for a LOCK (score >= the deciding wait value) that undiscounted DTD play chances would make a WAIT."""
+    return (f"LOCK depends on DTD play chance {P_DTD[0]:.2f}: confirm news; rerun with --play 0.9 if probable"
+            if value <= score < healthy - 1e-9 else "")
+
+
+def lock_slot(d, pid, anchor, game_day):
+    """Slot verdict inputs for pid's game on game_day, in the slot whose Sleeper starter is anchor
+    (pid himself, or the starter he was rotated in for; None: the slot week's plan fed him into that day).
+    Judged on week's base lineup and plan, as week's lock lines are, unless that base moves the anchor out of
+    his Sleeper slot (or, for a feed, doesn't feed him): then on Sleeper's lineup as it stands.
+    -> (wait value, description, upper bound, fills: [(day, who)], week context, slot index) or None."""
+    pool, sleeper = d["pool"], find_roster(d, MY_ROSTER).get("starters") or []
+    for w in (week_context(d), week_context(d, sleeper_base=True)):
+        if anchor is None:
+            i = next((i for i, p in w["plan"].get(game_day, {}).items() if p == pid), None)
+            i = next((j for j, (q, _) in w["extra"].get(game_day, {}).items() if q == pid), i)
+            how = " (assumed from week's rotation plan; --slot-of to override)"
+        else:
+            i, how = next((i for i, p in w["base"].items() if p == anchor), None), ""
+        if i is not None and (anchor is None or sleeper.index(anchor) == i):
+            break
+    if i is None:
+        return None
+    if i in w["blocked"]:
+        sys.exit(f"{SLOTS[i]} is already locked; it cannot take another score.")
+    anchor = w["base"].get(i)
+    cont, fills = slot_rest(w, i, game_day, pid)
+    desc = f"{SLOTS[i]}" + ("" if anchor == pid else f" for {short(pool, anchor)}") + how + ", then " + (
+        ", ".join(f"{day:%a} {short(pool, p)}" for day, p in fills) or "nobody") + " available continuation"
+    elig = draft.SLOT_ELIGIBLE[SLOTS[i]]
+    cands = [p for p in w["games"] if p == anchor or p == pid or (p in w["bench"] and elig & set(pos_of(pool, p)))]
+    days = [day for day in w["left"] if day > game_day]
+    cutoff = max(d["today"], game_day + datetime.timedelta(1))
+    upper = stop_value(slot_options(days, {}, 0, [(w["fpg"][p], {**play_map(w["games"][p], status(pool, p), cutoff, p),
+                                                               **w.get("game_overrides", {}).get(p, {})})
+                                                 for p in cands if w["fpg"][p] > 0]))
+    return cont, desc, upper, fills, w, i
+
+
+def lock_game(dates, today, game=None):
+    """Which game the score is from and his games after it -> (game, after, error or None).
+    Default: his latest game on or before today (a score run the next morning is from yesterday's game)."""
+    if game is not None and game not in dates:
+        return game, [], f"no game on {game:%a %m/%d}"
+    if game is None:
+        past = [day for day in dates if day <= today]
+        if not past:
+            return None, [], "no game on or before today this week; pass --game YYYY-MM-DD"
+        game = max(past)
+    return game, sorted(day for day in dates if day > game), None
+
+
+def find_mine(d, pids, raw):
+    """One Owner player by name (exact normalized match, else a unique substring), else exit with the matches."""
+    pool, key = d["pool"], draft.norm(raw)
+    name = {p: draft.norm(pool.get(p, {}).get("full_name") or "") for p in pids}
+    hits = [p for p in pids if name[p] == key] or [p for p in pids if key and key in name[p]]
+    if len(hits) != 1:
+        sys.exit(f"Player {raw!r} matches {len(hits)} Owner players" + (": " if hits else "") + ", ".join(short(pool, p) for p in hits))
+    return hits[0]
+
+
+def lock_path(d):
+    """This week's lock records: private/state/locks-<season>-w<NN>.json, so a new week starts empty. None without a
+    league (test fixtures), so tests never read the real records."""
+    if "lock_path" in d:
+        return d["lock_path"]
+    lg = d.get("league")
+    return os.path.join(STATE, f"locks-{lg['season']}-w{d['week']:02d}.json") if lg else None
+
+
+def saved_locks(d):
+    """{pid: locked score} recorded this week with `lock <player> <score> --commit`; missing or unreadable = none."""
+    try:
+        with open(lock_path(d)) as f:
+            return {str(p): float(x) for p, x in json.load(f).items()}
+    except (TypeError, OSError, ValueError, AttributeError):
+        return {}
+
+
+def locked_pids(d, names):
+    """--locked "A,B" -> pids, overriding the records ("" = none locked); each name must match exactly one Owner
+    player. Omitted (None) -> this week's `lock --commit` records still on our roster."""
+    r = find_roster(d, MY_ROSTER)
+    if names is None:
+        return [p for p in saved_locks(d) if p in r["players"]]
+    return [find_mine(d, r["players"], n.strip()) for n in names.split(",") if n.strip()]
+
+
+def commit_lock(d, a):
+    """lock <player> <score> --commit records a lock made in Sleeper; --uncommit removes one."""
+    pool, r, path = d["pool"], find_roster(d, MY_ROSTER), lock_path(d)
+    if a.player is None or path is None:
+        sys.exit("--commit/--uncommit needs a player: ./gm.py lock \"<player>\" <score> --commit")
+    if "state" in d and d["week"] != d["state"]["week"]:
+        sys.exit(f"--commit/--uncommit records Sleeper's current week ({d['state']['week']}); "
+                 f"drop --date/--week (this run is week {d['week']}).")
+    if os.path.exists(path) and not saved_locks(d) and open(path).read().strip() not in ("", "{}"):
+        sys.exit(f"{path} exists but can't be read; fix or delete it before recording, so no lock record is lost.")
+    pid, locks = find_mine(d, r["players"], a.player), saved_locks(d)
+    if a.uncommit:
+        if pid not in locks:
+            sys.exit(f"{short(pool, pid)} has no lock recorded this week.")
+        del locks[pid]
+    else:
+        if a.score is None:
+            sys.exit("--commit needs the locked score: ./gm.py lock \"<player>\" <score> --commit")
+        if pid not in (r.get("starters") or []):
+            sys.exit(f"{short(pool, pid)} isn't in a starting slot in Sleeper, and a locked player always is. "
+                     "Check the lock in the app, then retry.")
+        locks[pid] = a.score
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w") as f:
+        json.dump(locks, f)
+    os.replace(path + ".tmp", path)
+    print(f"{'Removed lock record for' if a.uncommit else 'Recorded lock:'} {short(pool, pid)}"
+          + ("" if a.uncommit else f" at {a.score:.1f}") + f". Locked this week (week {d['week']}): "
+          + (", ".join(f"{short(pool, p)} {x:.1f}" for p, x in locks.items()) or "none"))
+
+
+def cmd_lock(d, a):
+    pool, r = d["pool"], find_roster(d, MY_ROSTER)
+    wg = week_games(d["sched"], d["week"])
+    starters = r.get("starters") or []
+    if getattr(a, "commit", False) or getattr(a, "uncommit", False):
+        return commit_lock(d, a)
+    d["locked"] = locked_pids(d, a.locked)
+    if a.player is None:
+        return pending_locks(d, r, wg)
+    pid = find_mine(d, r["players"], a.player)
+    if pid in d["locked"]:
+        print(f"{short(pool, pid)}: already locked; no decision remains.")
+        return footer(d)
+    anchor = find_mine(d, starters, a.slot_of) if a.slot_of else pid if pid in starters else None
+    if a.slot_of and pid in starters:
+        sys.exit(f"{short(pool, pid)} already starts at {SLOTS[starters.index(pid)]} in Sleeper; drop --slot-of.")
+    if pid not in d["vals"]:
+        sys.exit(f"{short(pool, pid)} has no board projection; judge the lock by hand.")
+    fpg = d["vals"][pid][1]
+    gm = games_of(d, pid, wg)
+    if d["sched"] or a.game:
+        game, after, err = lock_game(set(gm), d["today"], a.game)
+        if err:
+            sys.exit(f"{short(pool, pid)}: {err}. His games this week: " + (" ".join(f"{day:%a %m/%d}" for day in sorted(gm)) or "none"))
+    else:
+        game, after = d["today"], []
+    n_left = a.remaining if a.remaining is not None else len(after)
+
+    def plays_for(st):
+        """Play chances for his last n_left games: --play, else play_map's (status-aware) for those dates."""
+        if a.play is not None:
+            return [a.play] * n_left
+        if not d["sched"]:
+            return [1 - Q_DNP] * n_left
+        pm = play_map(gm, st, max(d["today"], game + datetime.timedelta(1)), pid)
+        return [pm[day] for day in after[len(after) - n_left:]]
+
+    def slot_for(dd, plays):
+        if a.remaining is not None or a.play is not None:
+            # --remaining N keeps the last N dates (e.g. the next game is ruled out); other players' games stay intact.
+            kept = after[len(after) - n_left:]
+            override = {day: 0.0 for day in after if day not in kept}
+            override.update(dict(zip(kept, plays)))
+            dd = dict(dd, game_overrides={**dd.get("game_overrides", {}), pid: override})
+        return lock_slot(dd, pid, anchor, game)
+
+    plays = plays_for(status(pool, pid))
+    if a.remaining is None and not d["sched"]:
+        sys.exit("Schedule unavailable: pass --remaining N.")
+    src = "--remaining" if a.remaining is not None else "schedule after " + game.strftime(DAY) + ": " + (
+        " ".join(day.strftime("%a") for day in after) or "none")
+    earlier = [day for day in gm if day < game]
+    print(f"Score assumed from his game {game.strftime(DAY)} {gm.get(game, '')}".rstrip()
+          + ("" if a.game else " (his latest game on or before today" + (
+              f"; if it's from {max(earlier).strftime(DAY)}, rerun with --game {max(earlier)}" if earlier and game == d["today"] else "")
+             + ")"))
+    if after and (after[0] < d["today"] or tipped(after[0], pool[pid].get("team"))):
+        sys.exit(f"Lock window closed: his next game ({after[0].strftime(DAY)}) has tipped; "
+                 f"the score from {game.strftime(DAY)} cannot be locked.")
+    slot = None
+    if d["sched"]:
+        if a.remaining is not None or a.play is not None:
+            if n_left > len(after) or n_left < 0:
+                sys.exit(f"--remaining must be between 0 and {len(after)} scheduled games after {game}.")
+            print("NOTE: --remaining/--play change only his future games; other slot options are retained.")
+        slot = slot_for(d, plays)
+        if slot is None:
+            print(f"NOTE: {short(pool, pid)} is not in Sleeper's starters and week's plan doesn't feed him then: a game "
+                  f"he didn't start can't be locked. If you rotated him in, pass --slot-of \"<starter he replaced>\".")
+    elif a.remaining is not None or a.play is not None:
+        print("NOTE: schedule unavailable; the verdict covers his own games only.")
+    st = f" [{status(pool, pid)}]" if status(pool, pid) else ""
+    print(f"Remaining games from {src}{st}")
+    for line in lock_report(short(pool, pid), a.score, fpg, plays, slot):
+        print(line)
+    if slot and slot[4]["base"].get(slot[5]) != pid:  # a bench score may close a cheaper slot it reaches
+        w, i = slot[4], slot[5]
+        lanes = lanes_after(w, game, {i: pid})
+        alts = sorted((lanes[j][1] + MOVE_COST, j) for j in feed_reach(w, lanes).get(i, ()) if lanes[j][1] + MOVE_COST < slot[0])
+        for x, j in alts[:2]:
+            print(f"  or via {SLOTS[j]} ({short(pool, w['base'][j]) + chr(39) + 's slot' if j in w['base'] else 'empty slot'}): "
+                  f"{'LOCK' if a.score >= x else 'WAIT'} at {x:.1f}, moving {short(pool, lanes[i][2][0][1])} to {SLOTS[j]} "
+                  f"before that slot's next tip" + (f" and benching {short(pool, w['base'][j])}" if j in w["base"] else ""))
+        if alts:
+            print("  Other bench scores from that night may claim the cheaper slot first: ./gm.py lock decides them jointly.")
+    value = slot[0] if slot else wait_value(fpg, plays)
+    if a.score >= value:  # would undiscounted DTD play chances (his or the slot's other options) say WAIT?
+        healthy_plays = plays_for("" if status(pool, pid) in DTD else status(pool, pid))
+        healthy = slot_for(dtd_free(d), healthy_plays) if slot else None
+        note = dtd_flip(a.score, value, healthy[0] if healthy else wait_value(fpg, healthy_plays))
+        if note:
+            print("  " + note)
+    q = 1 - a.play if a.play is not None else Q_DNP
+    print(f"Thresholds at {fpg:.1f} FP/g, DNP chance {q:.2f} per game: " +
+          " | ".join(f"{k} left {t:.1f}" for k, t in enumerate(thresholds(fpg, q), 1)))
+    print(f"Plays used: {', '.join(f'{p:.2f}' for p in plays) or 'none'} ("
+          + ("--play" if a.play is not None else f"{1 - Q_DNP:.2f}, {1 - Q_B2B:.2f} on a back-to-back's second night"
+             + (f"; {status(pool, pid)}: {P_DTD[0]:.2f} next game, {P_DTD[1]:.2f} later" if status(pool, pid) in DTD else "")
+             + "".join(f"; NBA report {REPORT['at']}: {day:%a} {s}"
+                       for day, s in sorted(REPORT["pids"].get(pid, {}).items()) if day in after))
+          + "). A final game he sits scores 0. If his next game is ruled out, rerun with --remaining set to the games after it.")
+    due = deadline(pool, pid, after, slot[3] if slot else [])
+    if due:
+        print(f"Deadline: lock before {tip_text(*due[:2])}" + ("" if due[2] == pid else
+              f", when the plan moves {short(pool, due[2])} into his slot: decide before benching him") + ".")
+    if status(pool, pid):
+        print(f"NOTE: status {status(pool, pid)}; if he may sit, rerun with a lower --play or --remaining.")
+    footer(d)
+
+
+def box_scores(d):
+    """{pid: {date: FP}} from the week's Sleeper box scores: games he played (a DNP has no entry)."""
+    out = {}
+    for row in fetch(f"https://api.sleeper.com/stats/nba/{d['league']['season']}/{d['week']}?season_type=regular"):
+        if row.get("date") and (row.get("stats") or {}).get("sp"):
+            out.setdefault(str(row.get("player_id")), {})[datetime.date.fromisoformat(row["date"])] = game_fp(row["stats"])
+    return out
+
+
+def pending_locks(d, r, wg):
+    """For each current starter, his latest box score this week and the LOCK/WAIT call."""
+    pool = d["pool"]
+    if not d["sched"]:
+        print("Schedule unavailable: pending lock verdicts omitted. Check remaining games in Sleeper.")
+        return footer(d)
+    try:
+        box = box_scores(d)
+    except (OSError, ValueError) as e:
+        print(f"NOTE: box scores unavailable ({e}); use ./gm.py lock <player> <score>.")
+        return footer(d)
+    played = {p: g for p, g in ((p, [(day, fp) for day, fp in g.items() if day <= d["today"]]) for p, g in box.items()) if g}
+    starters = r.get("starters") or []
+    # Judge each slot on week's base and plan when that base keeps him in his Sleeper slot (as lock does), else on
+    # Sleeper's lineup. healthy: the same without the DTD discount, built only when a LOCK might depend on it.
+    ws = (week_context(d), week_context(d, sleeper_base=True)) if d["sched"] else None
+    healthy_ws = {}
+    print(f"Pending lock calls, week {d['week']} (current starters; you can only lock a game he started; skip slots already locked):")
+    rows, out = [], []  # out: printed lines, or a row index whose call is decided jointly below
+    for i, pid in enumerate(starters):
+        if pid in d.get("locked", []):
+            out.append(f"  {short(pool, pid)}: already locked; no decision remains.")
+            continue
+        if pid not in played or pid not in d["vals"]:
+            continue
+        last_day, score = max(played[pid])
+        gm = games_of(d, pid, wg)
+        if not gm:
+            out.append(f"  {short(pool, pid)}: schedule unavailable for his team; no lock verdict.")
+            continue
+        after = sorted(day for day in gm if day > last_day)
+        if after and (after[0] < d["today"] or tipped(after[0], pool[pid].get("team"))):
+            out.append(f"  {short(pool, pid)}: lock window closed for {last_day.strftime(DAY)} "
+                       f"when his {after[0].strftime(DAY)} game tipped.")
+            continue
+        pm = play_map(gm, status(pool, pid), max(d["today"], last_day + datetime.timedelta(1)), pid)
+        # A bench player in a week-base starter's slot is that slot's feed; any other starter missing from week's
+        # base is judged on Sleeper's lineup, as before.
+        feed = i in ws[0]["base"] and pid not in ws[0]["base"].values() and i not in ws[0]["blocked"]
+        sb = ws[0]["base"].get(i) != pid and not feed
+        rows.append(dict(i=i, pid=pid, day=last_day, score=score, after=after, sb=sb, feed=feed,
+                         plays=[pm[day] for day in sorted(gm) if day > last_day],
+                         log=", ".join(f"{day.strftime('%a')} {fp:.1f}" for day, fp in sorted(played[pid]))))
+        out.append(len(rows) - 1)
+    # Bench scores from the same night are decided together: each may close its own slot or a cheaper one it reaches.
+    calls, w0 = {}, ws[0]
+    for day in sorted({row["day"] for row in rows if row["feed"]}):
+        here = [row for row in rows if row["day"] == day and not row["sb"]]
+        lanes = lanes_after(w0, day, {row["i"]: row["pid"] for row in here})
+        reach = feed_reach(w0, lanes)
+        standing = {row["i"]: row["score"] for row in rows if not row["feed"] and not row["sb"]}
+        prices = {j: max(lane[1], standing.get(j, 0.0)) for j, lane in lanes.items()}
+        feeds = {row["i"]: row["score"] for row in here if row["feed"] and row["i"] in reach}
+        choice = joint_locks(feeds, prices, reach)
+        for row in rows:  # this night's bench scores, and any standing score in a slot one of them closes
+            if (row in here and row["feed"] and row["i"] in reach) or (
+                    not row["sb"] and row["i"] in choice.values() and row["i"] not in choice):
+                calls[row["i"]] = (choice, lanes, reach, prices)
+    for item in out:
+        if isinstance(item, str):
+            print(item)
+            continue
+        row = rows[item]
+        i, pid, score, after = row["i"], row["pid"], row["score"], row["after"]
+        tail = f"  [{row['log']}]" + (" (today: confirm final)" if row["day"] == d["today"] else "")
+        w = ws[row["sb"]]
+        if i in calls:
+            choice, lanes, reach, prices = calls[i]
+            if i in choice.values() and i not in choice:  # another bench score's lock closes this slot
+                f = next(k for k, j in choice.items() if j == i)
+                print(f"  {SLOTS[i]:<5}{short(pool, pid)}: {score:.1f} FP → PASS ({short(pool, rows_at(rows, f))}'s lock in "
+                      f"{SLOTS[f]} closes this slot; see that call){tail}")
+                continue
+            print(f"  {SLOTS[i]:<5}" + feed_call(pool, w0, row, choice, lanes, reach, prices) + tail)
+            continue
+        slot, fills = None, []
+        if i in w["base"]:
+            cont, fills = slot_rest(w, i, row["day"], pid)
+            slot = (cont, ", ".join(f"{day:%a} {short(pool, p)}" for day, p in fills) or "nobody left", 0)
+        due = deadline(pool, pid, after, fills)
+        print(f"  {SLOTS[i]:<5}" + lock_report(short(pool, pid), score, d["vals"][pid][1], row["plays"], slot)[0] + tail
+              + (f" (lock before {tip_text(*due[:2])}" + ("" if due[2] == pid else f"; {short(pool, due[2])} moves in")
+                 + ")" if due else ""))
+        value = slot[0] if slot else wait_value(d["vals"][pid][1], row["plays"])
+        if score >= value:
+            gm = games_of(d, pid, wg)
+            st = "" if status(pool, pid) in DTD else status(pool, pid)
+            pm = play_map(gm, st, max(d["today"], row["day"] + datetime.timedelta(1)), pid)
+            if slot:
+                if row["sb"] not in healthy_ws:
+                    healthy_ws[row["sb"]] = week_context(dtd_free(d), sleeper_base=row["sb"])
+                healthy = slot_rest(healthy_ws[row["sb"]], i, row["day"], pid)[0]
+            else:
+                healthy = wait_value(d["vals"][pid][1], [pm[day] for day in sorted(gm) if day > row["day"]])
+            note = dtd_flip(score, value, healthy)
+            if note:
+                print("        " + note)
+    if not out:
+        print("  No starter has a box score yet this week.")
+    footer(d)
+
+
+def rows_at(rows, i):
+    return next(row["pid"] for row in rows if row["i"] == i)
+
+
+def first_due(pool, *dues):
+    """The earliest of several deadline() results (None skipped)."""
+    team_tip = lambda due: CLOCK["tips"].get((due[0], due[1])) or datetime.datetime.min
+    dues = [due for due in dues if due]
+    return min(dues, key=lambda due: (due[0], team_tip(due))) if dues else None
+
+
+def feed_call(pool, w, row, choice, lanes, reach, prices):
+    """One bench score's joint call: LOCK in place, LOCK via a cheaper slot (with the move it needs), or WAIT."""
+    i, pid, score = row["i"], row["pid"], row["score"]
+    own, fills = lanes[i][1], lanes[i][2]
+    name, starter = short(pool, pid), lambda j: short(pool, w["base"][j]) + "'s slot" if j in w["base"] else "empty slot"
+    mine = deadline(pool, pid, row["after"], fills)
+    desc = f"slot wait value {own:.1f}: " + (", ".join(f"{day:%a} {short(pool, p)}" for day, p in fills) or "nobody left")
+    if i in choice and choice[i] != i:
+        j = choice[i]
+        due = first_due(pool, mine, deadline(pool, pid, [], lanes[j][2]))
+        verdict = (f"LOCK via {SLOTS[j]} {prices[j] + MOVE_COST:.1f} ({starter(j)}): move {short(pool, fills[0][1])} to {SLOTS[j]} and "
+                   f"bench " + (short(pool, w["base"][j]) if j in w["base"] else "nobody") + f" ({desc})")
+    else:
+        taken = set(choice) | set(choice.values())
+        alts = sorted((prices[j] + MOVE_COST, j) for j in reach[i] if j not in taken and prices[j] + MOVE_COST < own)
+        due = mine
+        verdict = ("LOCK" if i in choice else "WAIT") + f" ({desc}" + (
+            f"; cheapest other slot he reaches: {alts[0][0]:.1f} via {SLOTS[alts[0][1]]}, {starter(alts[0][1])}"
+            if alts and i not in choice else "") + ")"
+    return (f"{name}: {score:.1f} FP → {verdict}" + (f" (lock before {tip_text(*due[:2])}"
+            + ("" if due[2] == pid else f"; {short(pool, due[2])} moves in") + ")" if due else ""))
+
+
+def replay(base, rolls, days, games, fpg, box, pos):
+    """The lock policy on actual scores, night by night as `lock` decides them. rolls: {slot: [(day, pid)]} in date
+    order; box: {pid: {date: FP}} (a DNP has no entry). Each night the slots' players post their scores (a DNP is 0
+    and replaces an unlocked score); a starter's score locks when it reaches its slot's value of waiting over the
+    slot's later rolls, and the night's bench scores are decided jointly (joint_locks, one-hop feed reach). A via
+    lock moves the feed's later rolls into the closed slot. A locked player's later rolls drop from every slot;
+    unlocked, a slot's final roll counts.
+    -> ({slot: (pid whose score counts there, policy points)}, {(pid, day): the lowest line his score could close},
+    via locks)."""
+    # ponytail: same policy as reports/2026-10-20/backtest/q26.py's pooled arm, which the backtest measured.
+    lanes = {i: dict(slot=i, rolls=list(rs), last=0.0, who=None) for i, rs in rolls.items()}
+    out, lines, vias, gone = {}, {}, 0, set()
+    value = lambda rs: stop_value([[(fpg[p], games[p][day])] for day, p in rs])
+    for day in days:
+        posted = {}
+        for i, ln in lanes.items():
+            ln["rolls"] = [(dd, p) for dd, p in ln["rolls"] if p not in gone]
+            if ln["rolls"] and ln["rolls"][0][0] == day:
+                p = ln["rolls"].pop(0)[1]
+                ln["last"], ln["who"] = box.get(p, {}).get(day, 0.0), p
+                if day in box.get(p, {}):
+                    posted[i] = p
+        floor = {i: value(ln["rolls"]) for i, ln in lanes.items()}
+        feeds = {i: lanes[i]["last"] for i, p in posted.items() if p != base.get(i) and lanes[i]["rolls"]}
+        fits = lambda p, j: draft.SLOT_ELIGIBLE[SLOTS[lanes[j]["slot"]]] & set(pos.get(p, ()))
+        reach = {i: {j for j in lanes if j != i and all(fits(p, j) for _, p in lanes[i]["rolls"])} for i in feeds}
+        own = {i: lanes[i]["last"] for i in posted if i not in feeds}
+        prices = {j: max(floor[j], own.get(j, 0.0)) for j in lanes}
+        for i, p in posted.items():
+            lines[(p, day)] = min([floor[i]] + [prices[j] + MOVE_COST for j in reach.get(i, ())])
+        choice = joint_locks(feeds, prices, reach)
+        closed = set(choice.values()) - set(choice)
+        for i, j in choice.items():
+            out[lanes[i]["slot"]] = (posted[i], lanes[i]["last"])
+            gone.add(posted[i])
+            if j != i:
+                vias += 1
+                lanes[i].update(slot=lanes[j]["slot"], last=0.0, who=None)
+                del lanes[j]
+            else:
+                del lanes[i]
+        for i, s in own.items():
+            if i not in closed and i in lanes and s >= floor[i] and lanes[i]["rolls"]:
+                out[lanes[i]["slot"]] = (posted[i], s)
+                gone.add(posted[i])
+                del lanes[i]
+    out.update({ln["slot"]: (ln["who"], ln["last"]) for ln in lanes.values()})
+    return out, lines, vias
+
+
+def week_over(sched, last, today, now):
+    """Whether the week ending on day last is over: a later day, or that day once every game on it tipped 3 h ago
+    (a game runs about 2 1/4 h; a missing tip time keeps it open). now None (a --date dry run) counts that day over."""
+    if today != last:
+        return today > last
+    if now is None:
+        return True
+    games, tips = [g for g in sched or [] if g["date"] == last.isoformat()], tip_times(sched, [last])
+    return len(tips) >= 2 * len(games) and all(t + datetime.timedelta(hours=3) <= now for t in tips.values())
+
+
+def cmd_review(d, a):
+    """A finished week, per slot: points counted vs the lock policy replayed on the same box scores vs hindsight."""
+    pool, days = d["pool"], week_days(d["sched"], d["week"])
+    now = None if getattr(a, "date", None) else datetime.datetime.utcnow()
+    over = lambda days: week_over(d["sched"], days[-1], d["today"], now)
+    if days and not over(days) and a.week is None:  # the current week is still running: review the one before
+        if d["week"] <= 1:
+            sys.exit(f"No finished week yet: week 1 ends {days[-1].strftime(DAY)}.")
+        d = dict(d, week=d["week"] - 1)
+        days = week_days(d["sched"], d["week"])
+    if not days:
+        sys.exit(f"Schedule unavailable for week {d['week']}: no review.")
+    if not over(days):
+        sys.exit(f"Week {d['week']} ends {days[-1].strftime(DAY)}; review it after its last game (or pass --date).")
+    print(f"Week {d['week']} review ({days[0].strftime(DAY)} – {days[-1].strftime(DAY)}): points counted vs lock policy vs hindsight, per slot")
+    try:
+        box = box_scores(d)
+    except (OSError, ValueError) as e:
+        print(f"  Box scores unavailable ({e}): counted, policy and hindsight unknown.")
+        return footer(d)
+    try:
+        me = next(m for m in draft.get(f"/league/{d['league']['league_id']}/matchups/{d['week']}") if m["roster_id"] == MY_ROSTER)
+    except (OSError, ValueError, StopIteration) as e:
+        print(f"NOTE: matchup unavailable ({e}); slots are this session's Sleeper starters.")
+        me = {}
+    starters = me.get("starters") or find_roster(d, MY_ROSTER).get("starters") or []
+    reported = dict(zip(starters, me.get("starters_points") or []))  # Sleeper's points per slot at week end
+    locks = saved_locks(d)
+    # ponytail: no tag history, so the policy treats everyone as healthy at the week's start; it judges lock timing,
+    # not injury calls. Upgrade: snapshot each day's play chances if injury calls turn out to be the leak.
+    w = week_context(dict(d, today=days[0], pool={p: dict(v, injury_status="") for p, v in pool.items()}))
+    print(f"  {'Slot':<5}{'Player':<20}{'Counted':>8} {'(from)':<11}{'Policy':>7}{'Hindsight':>10}{'Leak':>6}  Cause")
+    totals, worst, agree, unknown = [0.0, 0.0, 0.0], None, [], 0
+    slot_rolls = {i: [(day, p) for day in days for p in [slot_who(day, w["base"].get(i), feeds_of(w, i)[0], w["games"], w["fpg"])] if p]
+                  for i in range(len(SLOTS))}
+    pol, lines, vias = replay(w["base"], slot_rolls, days, w["games"], w["fpg"], box, w["pos"])
+    # Pair each Sleeper slot with the policy slot whose points belong to the same player (a via lock moves players
+    # between slots), else the same index, else a leftover.
+    anchors = [starters[i] if i < len(starters) and starters[i] != "0" else None for i in range(len(SLOTS))]
+    held = {who: k for k, (who, _) in pol.items() if who}
+    pair = {i: held[p] for i, p in enumerate(anchors) if p in held}
+    left = [k for k in range(len(SLOTS)) if k not in pair.values()]
+    for i in range(len(SLOTS)):
+        if i not in pair:
+            pair[i] = i if i in left else left[0]
+            left.remove(pair[i])
+    for i, slot in enumerate(SLOTS):
+        s, (feeds, _), rolls = w["base"].get(i), feeds_of(w, i), slot_rolls[i]
+        who, policy = pol.get(pair[i], (None, 0.0))
+        anchor = anchors[i]
+        gm = games_of(d, anchor, w["wg"]) if anchor else {}
+        hind = max((box[p][day] for day, p in rolls + [(day, anchor) for day in gm] if day in box.get(p, {})), default=0.0)
+        no_proj = [p for p in dict.fromkeys((s, anchor)) if p and not d["vals"].get(p, (0, 0.0))[1] and games_of(d, p, w["wg"])]
+        if no_proj:  # the policy can't value his games: unknown, not 0
+            policy, unknown = None, unknown + 1
+        causes = ([f"no board projection for {', '.join(short(pool, p) for p in no_proj)}: policy unknown"] if no_proj
+                  else [f"{len(rolls)}-game slot"] if len(rolls) <= 1 else [])
+        dnp = sum(day not in box.get(p, {}) for day, p in rolls)
+        causes += [f"{dnp} DNP"] if dnp else []
+        if anchor in locks:
+            counted, src = locks[anchor], "lock"
+            if anchor in reported:
+                agree.append(abs(reported[anchor] - counted) < 0.05)
+            # the same score twice: take the latest such game, whose line is lowest, so a valid late lock isn't flagged.
+            # The line is the lowest his score could close that night, so a lock via a cheaper slot isn't flagged.
+            hit = max((day for rs in slot_rolls.values() for day, p in rs if p == anchor and abs(box.get(p, {}).get(day, 1e9) - counted) < 0.05), default=None)
+            line = lines.get((anchor, hit))
+            if line is not None and counted < line - 0.05:
+                causes.append(f"locked below line {line:.1f}")
+        else:
+            final = box.get(anchor, {}).get(max(gm)) if gm else None
+            counted, src = ((reported[anchor], "Sleeper") if anchor in reported else (final or 0.0, "final game") if gm
+                            else (0.0, "no games") if anchor else (0.0, "empty slot"))
+            causes += ["no lock recorded" + (" (his final game: DNP)" if final is None else " (final game counted)")] if gm else []
+        if feeds:
+            causes.append(f"{len(feeds)} feed(s) planned, adherence unknown")
+        leak = None if policy is None else policy - counted
+        if leak is not None:  # an unknown slot stays out of all three totals, so they compare like with like
+            totals = [totals[0] + counted, totals[1] + policy, totals[2] + hind]
+            if worst is None or leak > worst[1]:
+                worst = (slot, leak, "; ".join(causes))
+        policy_who = "" if who in (None, anchor) else f" (policy: {short(pool, who, 12)})"
+        num = lambda x, n: f"{'n/a':>{n}}" if x is None else f"{x:>{n}.1f}"
+        print(f"  {slot:<5}{short(pool, anchor, 19):<20}{counted:>8.1f} {('(' + src + ')'):<11}{num(policy, 7)}{hind:>10.1f}{num(leak, 6)}  "
+              + "; ".join(causes) + policy_who)
+    gap = f" (policy unknown in {unknown} slot(s); totals leave them out)" if unknown else ""
+    print(f"  Totals: counted {totals[0]:.1f} | policy {totals[1]:.1f} | hindsight {totals[2]:.1f} (an upper bound, not a target){gap}")
+    if agree:
+        print(f"Sleeper's reported points equal the lock record in {sum(agree)} of {len(agree)} locked slot(s)"
+              + ("" if all(agree) else ": Sleeper shows the latest game, not the lock (issue #7)") + ".")
+    print(f"Outcome line: week {d['week']} execution: counted {totals[0]:.1f}, policy {totals[1]:.1f}, hindsight {totals[2]:.1f}; "
+          f"policy − counted {totals[1] - totals[0]:+.1f}{gap}; "
+          + (f"largest leak {worst[0]} {worst[1]:+.1f} ({worst[2]})." if worst and worst[1] > 0.05 else "no slot below policy."))
+    print("NOTE: policy replays week's Monday base lineup and plan with this session's roster and board, everyone healthy and no "
+          "same-night reuse; it is not the board as it stood that week. It decides each night's bench scores jointly, as lock does"
+          + (f" ({vias} via lock(s); a row's \"policy: X\" names whose points the policy counts there)" if vias else "")
+          + ". Counted uses lock records, else Sleeper's slot points.")
+    footer(d)
+
+
+def rostered(rosters):
+    return {p: r["roster_id"] for r in rosters for p in (r.get("players") or []) + (r.get("reserve") or [])}
+
+
+def free_agents(board, vals, notes, pool, taken, want=None):
+    """Board players with an NBA team on no roster, best first; excluded and unprojected players skipped."""
+    out = []
+    for i, pid in enumerate(board, 1):
+        p = pool.get(pid, {})
+        if pid in taken or pid not in vals or not (p.get("active") and p.get("team")):
+            continue
+        if want and not want & set(pos_of(pool, pid)):
+            continue
+        out.append((i, pid))
+    return out
+
+
+def trending_adds(path=os.path.join(CACHE, "trending-add.json")):
+    """Sleeper's trending adds [(pid, adds in 24h)], cached an hour; None with a NOTE if unavailable."""
+    try:
+        if not (os.path.exists(path) and time.time() - os.path.getmtime(path) < 3600):
+            data = fetch(TRENDING)
+            assert isinstance(data, list), "not a list"
+            os.makedirs(CACHE, exist_ok=True)
+            with open(path + ".tmp", "w") as f:
+                json.dump(data, f)
+            os.replace(path + ".tmp", path)
+        with open(path) as f:
+            return [(str(t["player_id"]), t.get("count", 0)) for t in json.load(f)]
+    except (OSError, ValueError, AssertionError, KeyError, TypeError) as e:
+        print(f"NOTE: Sleeper trending adds unavailable ({e}); trending section omitted.")
+        return None
+
+
+def beyond_board(d, trend, logs, replacement, left, n=6):
+    """Lines for free agents fa's board table can't show: Sleeper's trending adds, non-board players whose
+    2026 box-score FP/g (3+ games) is at least the board's replacement level, and the minutes radar (role
+    jumps the blend is slow to see). None skips a section."""
+    pool, taken, on_board = d["pool"], rostered(d["rosters"]), set(d["board"])
+
+    def row(p, tail):
+        st = status(pool, p)
+        return (f"  {short(pool, p):<23}{'/'.join(pos_of(pool, p)):<10}{pool.get(p, {}).get('team') or 'FA':<5}"
+                f"{st or '-':<8}{left(p) if d['sched'] else '?':>2} G  {tail}")
+
+    lines = []
+    if trend is not None:
+        fas = [(p, c) for p, c in trend if p not in taken]
+        lines.append(f"Trending adds (Sleeper, 24h): {len(fas)} of {len(trend)} are free agents here" + (":" if fas else "."))
+        for p, c in fas[:n]:
+            v = d["vals"].get(p)
+            lines.append(row(p, (f"V+{v[0]:.1f}/wk {v[1]:.1f}/g" if v else "on board, no V" if p in on_board else "not on board")
+                             + f" | {c} adds"))
+    if logs is not None:
+        hot = sorted(((sum(g[2] for g in gs) / len(gs), len(gs), p) for p, gs in logs.items()
+                      if p not in taken and p not in on_board and len(gs) >= 3), reverse=True)
+        hot = [h for h in hot if h[0] >= replacement]
+        lines.append(f"Not on board, 2026 box scores ≥ {replacement:.1f} FP/g (replacement), 3+ games: "
+                     + (f"{len(hot)}" if hot else "none"))
+        lines += [row(p, f"{fp:.1f} FP/g in {k} G") for fp, k, p in hot[:n]]
+        radar = []
+        for p, gs in logs.items():
+            m, l3 = sum(g[3] for g in gs), sum(g[3] for g in gs[-3:]) / 3
+            if p not in taken and pool.get(p, {}).get("team") and len(gs) >= RADAR_GAMES and l3 - m / len(gs) >= RADAR_MIN:
+                radar.append((l3 - m / len(gs), p, l3, m / len(gs), sum(g[2] for g in gs) / m))
+        radar.sort(reverse=True)
+        lines.append(f"Minutes radar, free agents with last-3 min/g ≥ season avg + {RADAR_MIN:g} ({RADAR_GAMES}+ games): "
+                     + (f"{len(radar)} (L3 min × FP/min ran ~3 FP/g high in the backtest, the blend ~6 low)" if radar else "none"))
+        lines += [row(p, f"min {l3:.1f} vs {avg:.1f} | {rate:.2f} FP/min → {l3 * rate:.1f}/g at L3 min") for _, p, l3, avg, rate in radar[:n]]
+    return lines
+
+
+def drop_candidate(players, vals, pool):
+    """Lowest board V/wk among the Owner's non-IR players with a board value (None if none has one).
+    Unprojected players aren't candidates: no V says nothing about their worth, so they're judged by hand."""
+    return min((p for p in players if p in vals), key=lambda p: vals[p], default=None)
+
+
+def stream_gains(d, fas, drops, first):
+    """[(ΔTeam, fa, drop)] for each free agent with his best drop, best first. ΔTeam: our expected locked score
+    for the rest of the week (week's base and rotation) with roster - drop + fa, minus the current roster's.
+    Both sides retain locked slots and optimize the remaining lineup. first: {fa: first date that counts}.
+    drops: bench pids, never one with V/wk >= the FA's + 5."""
+    r = find_roster(d, MY_ROSTER)
+    locked = set(d.get("locked") or [])
+    starters = [p if p in locked else "0" for p in r.get("starters") or []]
+
+    def score(players, adds):
+        rs = [dict(x, players=players, starters=starters) if x["roster_id"] == MY_ROSTER else x for x in d["rosters"]]
+        return team_score(dict(d, rosters=rs, adds=adds), MY_ROSTER, {}, False)[0]
+
+    now, out = score(r["players"], {}), []
+    for fa in fas:
+        ok = [p for p in drops if p not in locked and d["vals"][p][0] < d["vals"][fa][0] + 5]
+        best = max(((score([p for p in r["players"] if p != x] + [fa], {fa: first[fa]}) - now, x) for x in ok), default=None)
+        if best:
+            out.append((best[0], fa, best[1]))
+    return sorted(out, key=lambda t: -t[0])
+
+
+def cmd_fa(d, a):
+    pool, r = d["pool"], find_roster(d, MY_ROSTER)
+    d["locked"] = locked_pids(d, a.locked)
+    wg, days = week_games(d["sched"], d["week"]), week_days(d["sched"], d["week"])
+    taken = rostered(d["rosters"])
+    want = draft.SLOT_ELIGIBLE.get(a.pos.upper(), {a.pos.upper()}) if a.pos else None
+    fas = free_agents(d["board"], d["vals"], d["notes"], pool, taken, want)
+    mine = [p for p in r["players"] if p not in (r.get("reserve") or [])]
+    drop = drop_candidate([p for p in mine if p not in d["locked"]], d["vals"], pool)
+    if drop is None:
+        sys.exit("No Owner player has a board value: judge drops by hand.")
+
+    def left(pid):
+        return len([day for day in games_of(d, pid, wg) if day >= d["today"]]) if d["sched"] else 0
+
+    def exp(pid):
+        pm = play_map(games_of(d, pid, wg), status(pool, pid), d["today"], pid)
+        return wait_value(fpg_of(d, pid), [pm[day] for day in sorted(pm) if day >= d["today"]])
+
+    def played(pid):
+        """His team's games this week that have tipped (before today; today too on a past --date or after ESPN's tip
+        time). With waiver_after_game_start he is then on waivers until the clear day (waiver_day_of_week 0, day unverified)."""
+        return sorted(day for day in games_of(d, pid, wg)
+                      if day < d["today"] or day == d["today"] < datetime.date.today() or tipped(day, pool[pid].get("team")))
+
+    on_waivers = {}
+    st = d["league"]["settings"]
+    for wk in {d["week"], max(1, d["week"] - 1)}:
+        try:
+            txns = draft.get(f"/league/{d['league']['league_id']}/transactions/{wk}")
+        except (OSError, ValueError):
+            txns = []
+        for t in txns:
+            for pid in (t.get("drops") or {}):
+                until = datetime.datetime.fromtimestamp(t["created"] / 1000).date() + datetime.timedelta(st["waiver_clear_days"])
+                if until >= d["today"]:
+                    on_waivers[pid] = until
+    dv, dg = d["vals"].get(drop, (0, 0))
+    print(f"Free agents on board ({len(fas)}{', ' + a.pos.upper() if a.pos else ''}); drop candidate "
+          f"{short(pool, drop)} (V+{dv:.1f}/wk, {dg:.1f}/g, {left(drop)} games left, E {exp(drop):.1f})")
+    unproj = [short(pool, p) for p in mine if p not in d["vals"]]
+    if unproj:
+        print(f"  unprojected: {', '.join(unproj)} — judge by hand")
+    print(f"  {'Board':<6}{'Player':<23}{'Pos':<10}{'Team':<5}{'V/wk':>5}{'FP/g':>6}{'G':>3}  {'ΔV/wk':>6}{'ΔE wk':>7}  Status")
+    for rank, pid in fas[: a.top]:
+        v, g = d["vals"][pid]
+        flag = " ".join(x for x in (status(pool, pid), f"WAIVERS until {on_waivers[pid]:%a %m/%d}" if pid in on_waivers else "",
+                                    f"WAIVERS (played {played(pid)[0]:%a})" if played(pid) else "") if x)
+        print(f"  #{rank:<5}{short(pool, pid):<23}{'/'.join(pos_of(pool, pid)):<10}{pool[pid].get('team'):<5}"
+              f"{v:>5.1f}{g:>6.1f}{left(pid):>3}  {v - dv:>+6.1f}{exp(pid) - exp(drop):>+7.1f}  {flag}")
+    print(f"ΔV/wk = season weekly Lock-In surplus vs the drop; ΔE wk = this week's expected locked score with games left.")
+    trend = trending_adds()
+    if d["sched"] and days:
+        # waiver_after_game_start: today's game counts only if this is a live run (add before his tip); a claim
+        # on a dropped player still on waivers counts from the day after he clears. A free agent whose team already
+        # played this week is on waivers until the clear day (unverified), so he is no stream this week.
+        live = d["today"] == datetime.date.today()
+        start = d["today"] if live else d["today"] + datetime.timedelta(1)
+        hot = [p for p, _ in trend or [] if p not in taken and p in d["vals"] and pool.get(p, {}).get("team")][:10]
+        cands = [p for p in dict.fromkeys([p for _, p in fas[:15]] + hot) if p in on_waivers or not played(p)]
+        first = {p: max(start, on_waivers[p] + datetime.timedelta(1)) if p in on_waivers else start for p in cands}
+        bench = [p for p in mine if p not in (r.get("starters") or []) and p in d["vals"]]
+        print(f"Stream this week (ΔTeam = our expected locked score, rest of week with week's rotation, vs now; "
+              f"best bench drop, never one with V/wk ≥ his + 5; shown if ΔTeam ≥ {STREAM_MIN:g} and > "
+              f"{STREAM_WEEKS} × the season V/wk it costs):")
+        pairs = stream_gains(d, cands, bench, first)
+        rows = [(g, p, x) for g, p, x in pairs
+                if g >= STREAM_MIN and g > STREAM_WEEKS * max(0.0, d["vals"][x][0] - d["vals"][p][0])][:3]
+        if not d["locked"]:
+            print('  Assumes no slots are locked: record each lock with ./gm.py lock "<player>" <score> --commit.')
+        if not pairs:
+            print("  no pair: no projected bench player under the V/wk guard, or no candidates")
+        elif not rows:
+            print("  No stream beats its season cost this week.")
+        for gain, p, x in rows:
+            today_g = d["today"] in games_of(d, p, wg)
+            tail = (f"add before {tip_text(d['today'], pool[p].get('team'))}" if live else f"his {d['today']:%a} game not counted") if today_g else ""
+            if p in on_waivers:
+                tail = f"WAIVERS until {on_waivers[p]:%a %m/%d}: claim costs priority, counts from {first[p]:%a}"
+            print(f"  ΔTeam {gain:+5.1f}  add {short(pool, p)} ({pool[p].get('team')}, "
+                  f"{len([day for day in games_of(d, p, wg) if day >= first[p]])} G) drop {short(pool, x)} | "
+                  f"season ΔV/wk {d['vals'][p][0] - d['vals'][x][0]:+.1f}" + (f" | {tail}" if tail else ""))
+    try:
+        logs = rb.game_logs(rb.season_weeks(int(d["league"]["season"]), d["week"]))
+    except (OSError, ValueError) as e:
+        print(f"NOTE: 2026 box scores unavailable ({e}); off-board scorers omitted.")
+        logs = None
+    rep = re.search(r"healthy ([\d.]+)/game replacement", open(os.path.join(HERE, "board.txt")).read())
+    for line in beyond_board(d, trend, logs, float(rep.group(1)) if rep else float("inf"), left):
+        print(line)
+    print(f"Waivers: rolling priority (waiver_type 0; FAAB is 2). We are #{r['settings'].get('waiver_position')} of 10 "
+          f"(1 claims first); a successful claim sends us last. Dropped players take ~{st['waiver_clear_days']} days to clear. "
+          f"Free agents become waiver claims once their team tips (waiver_after_game_start=1) and clear on the waiver day "
+          f"(waiver_day_of_week=0, day unverified): a WAIVERS (played <day>) row is no add this week. "
+          f"After an add or trade only later games count; locked scores stay with the old team.")
+    footer(d)
+
+
+def team_score(d, rid, reported, sleeper_base):
+    """(mean, variance) of a team's weekly locked score: each slot by week's model (base player plus the
+    rotation plan's feeds, optimal stopping with the DNP correction). reported: {pid: points as reported by
+    Sleeper}; a slot whose reported score reaches its value of waiting is taken as locked at that score."""
+    w = week_context(d, sleeper_base, rid)
+    mean = var = 0.0
+    for i in range(len(SLOTS)):
+        s = w["base"].get(i)
+        feeds, extra = feeds_of(w, i)
+        m, m2 = stop_moments(slot_days(w["left"], s, feeds, w["games"], w["fpg"], extra))
+        x = reported.get(s, 0.0)
+        if rid == MY_ROSTER and s in d.get("locked", []) and s in d.get("lock_scores", {}):
+            m = d["lock_scores"][s]  # a recorded lock is our known score for that slot
+            m2 = m * m
+        elif x > 0 and x >= m:  # ponytail: assumes a reported score is still lockable; a late-night --date run may double-count today
+            m, m2 = x, x * x
+        mean, var = mean + m, var + max(0.0, m2 - m * m)
+    return mean, var
+
+
+def win_odds(scores, me, opp, median=True, n=2000, seed=2026):
+    """scores: {rid: (mean, variance)} -> (P(beat opp) or None, P(beat the league median) or None).
+    Median = average of the middle two of all teams' scores (Sleeper's median game)."""
+    # ponytail: each team's total is normal with the summed slot variances (slots and teams independent;
+    # per-game scores from the fitted CV curve, DNPs at Q_DNP/Q_B2B). Ignores pace/blowout correlation,
+    # injury news and manager mistakes, so odds are overconfident; widen the sd if a backtest says so.
+    rng, rids = random.Random(seed), sorted(scores)
+    h2h = med = 0
+    for _ in range(n):
+        x = {r: rng.gauss(scores[r][0], math.sqrt(scores[r][1])) for r in rids}
+        h2h += opp is not None and x[me] > x[opp]
+        mid = sorted(x.values())
+        med += x[me] > (mid[(len(mid) - 1) // 2] + mid[len(mid) // 2]) / 2
+    return (h2h / n if opp is not None else None), (med / n if median else None)
+
+
+def cmd_matchup(d, a):
+    pool = d["pool"]
+    try:
+        ms = draft.get(f"/league/{d['league']['league_id']}/matchups/{d['week']}")
+    except (OSError, ValueError) as e:
+        print(f"Matchups unavailable ({e}); fresh matchup advice unavailable.")
+        return footer(d)
+    me = next(m for m in ms if m["roster_id"] == MY_ROSTER)
+    opp = next((m for m in ms if me["matchup_id"] is not None and m["matchup_id"] == me["matchup_id"]
+                and m["roster_id"] != MY_ROSTER), None)  # matchup_id None: no opponent (bye or not set)
+    wg = week_games(d["sched"], d["week"])
+    left = [day for day in week_days(d["sched"], d["week"]) if day >= d["today"]]
+    rosters = {r["roster_id"]: r for r in d["rosters"]}
+
+    def strength(rid):
+        rr = rosters[rid]
+        act = [(p, pos_of(pool, p)) for p in rr["players"] if p not in (rr.get("reserve") or [])]
+        v = {p: d["vals"].get(p, (0, 0))[0] for p, _ in act}
+        pm = {p: play_map(games_of(d, p, wg), status(pool, p), d["today"], p) for p, _ in act}
+        e = {p: wait_value(fpg_of(d, p), [pm[p][day] for day in left if day in pm[p]]) for p, _ in act}
+        return sum(v[p] for p in best_lineup(act, v).values()), sum(e[p] for p in best_lineup(act, e).values())
+
+    print(f"Week {d['week']}: {d['team'][MY_ROSTER]} vs {d['team'][opp['roster_id']] if opp else 'BYE'}")
+    for m in [me] + ([opp] if opp else []):
+        sv, se = strength(m["roster_id"])
+        print(f"  {d['team'][m['roster_id']]:<14} Sleeper points {m.get('points') or 0:>6.1f} | best-9 board V+{sv:.1f}/wk | "
+              f"expected locked with games left {se:.1f} (best 9, no rotation)" if d["sched"] else f"  {d['team'][m['roster_id']]:<14} Sleeper points {m.get('points') or 0:.1f} | best-9 V+{sv:.1f}/wk")
+        pts = ", ".join(f"{short(pool, p).split()[-1]} {x:.1f}" for p, x in zip(m.get("starters") or [], m.get("starters_points") or []) if p != "0")
+        print(f"    starters (as reported by Sleeper; locked vs latest game unverified): {pts}")
+    allpts = sorted((m.get("points") or 0) for m in ms)
+    median = (allpts[len(allpts) // 2 - 1] + allpts[len(allpts) // 2]) / 2
+    rank = 1 + sum(x > (me.get("points") or 0) for x in allpts)
+    if d["week"] >= d["league"]["settings"]["playoff_week_start"]:
+        print("Playoff week: no median game.")
+    else:
+        print(f"Median game: separate W/L vs the league median each week. Median so far {median:.1f}; "
+              f"we rank {rank}/{len(allpts)} (top {len(allpts) // 2} beat it).")
+    if not any(allpts):
+        print("NOTE: no points scored yet this week; points columns are placeholders until games finish.")
+    if d["sched"]:
+        reported = {p: x for m in ms for p, x in zip(m.get("starters") or [], m.get("starters_points") or []) if p != "0"}
+        d["locked"], d["lock_scores"] = locked_pids(d, None), saved_locks(d)
+        scores = {rid: team_score(d, rid, reported, any(allpts)) for rid in rosters}
+        p_h2h, p_med = win_odds(scores, MY_ROSTER, opp and opp["roster_id"], d["week"] < d["league"]["settings"]["playoff_week_start"])
+        print(f"Win odds (2,000 draws, normal per team; week's slot model with rotation"
+              + (", Sleeper lineups as set, reported points as reported by Sleeper" if any(allpts) else ", week's base lineups")
+              + "): " + " | ".join(x for x in (p_h2h is not None and f"H2H {p_h2h:.0%}", p_med is not None and f"beat median {p_med:.0%}") if x))
+        print("  Expected locked score (±1 sd): " + ", ".join(
+            f"{d['team'][rid]}{'*' if rid == MY_ROSTER else ''} {m:.0f}±{math.sqrt(v):.0f}"
+            for rid, (m, v) in sorted(scores.items(), key=lambda kv: -kv[1][0])))
+    footer(d)
+
+
+def records(matchups_by_week):
+    """roster_id -> [h2h W, L, T, median W, L, T, PF] from completed weeks' matchups."""
+    rec = {}
+    for ms in matchups_by_week:
+        pts = {m["roster_id"]: m.get("points") or 0 for m in ms}
+        ranked = sorted(pts.values(), reverse=True)
+        top_cut, bottom = ranked[len(ranked) // 2 - 1], ranked[len(ranked) // 2]
+        for m in ms:
+            r = rec.setdefault(m["roster_id"], [0] * 7)
+            p = pts[m["roster_id"]]
+            opp = [pts[o["roster_id"]] for o in ms if m["matchup_id"] is not None and o["matchup_id"] == m["matchup_id"]
+                   and o["roster_id"] != m["roster_id"]]
+            if opp:
+                r[0 if p > opp[0] else 1 if p < opp[0] else 2] += 1
+            r[3 if p > bottom else 4 if p < top_cut else 5] += 1  # tie at the median cut counts as a tie
+            r[6] += p
+    return rec
+
+
+def regular_weeks(week, playoff_start):
+    """Completed regular-season weeks before `week`: playoff weeks have no median game and don't count."""
+    return range(1, min(week, playoff_start))
+
+
+def cmd_standings(d, a):
+    lid = d["league"]["league_id"]
+    done = regular_weeks(d["state"]["week"], d["league"]["settings"]["playoff_week_start"])
+    try:
+        with concurrent.futures.ThreadPoolExecutor(8) as ex:
+            weeks = list(ex.map(lambda w: draft.get(f"/league/{lid}/matchups/{w}"), done))
+    except (OSError, ValueError) as e:
+        print(f"Matchup history unavailable ({e}); showing Sleeper's records only.")
+        weeks = []
+    rec = records(weeks)
+    rows = []
+    for r in d["rosters"]:
+        h = rec.get(r["roster_id"], [0] * 7)
+        s = r["settings"]
+        rows.append((h[0] + h[3] + (h[2] + h[5]) / 2, h[6], r["roster_id"], h, s))
+    rows.sort(key=lambda x: (-x[0], -x[1]))
+    print(f"Standings after {len(weeks)} completed week(s) (H2H + median game; ties by PF, Sleeper tiebreak unverified)")
+    print(f"  {'#':<3}{'Team':<15}{'H2H':<8}{'Median':<8}{'Total':<8}{'PF':>8}   Sleeper W-L-T, fpts")
+    for n, (_, pf, rid, h, s) in enumerate(rows, 1):
+        mark = " bye" if n <= 2 else " playoff" if n <= 6 else ""
+        print(f"  {n:<3}{d['team'][rid] + ('*' if rid == MY_ROSTER else ''):<15}{f'{h[0]}-{h[1]}-{h[2]}':<8}"
+              f"{f'{h[3]}-{h[4]}-{h[5]}':<8}{f'{h[0] + h[3]}-{h[1] + h[4]}':<8}{pf:>8.1f}   "
+              f"{s.get('wins')}-{s.get('losses')}-{s.get('ties')}, {s.get('fpts', 0) + s.get('fpts_decimal', 0) / 100:.1f}{mark}")
+        if n == 6:
+            print("  " + "-" * 40 + " playoff line (top 6; top 2 bye; weeks 21-23)")
+    if not weeks:
+        print("NOTE: no completed weeks yet; the H2H/median split is computed from matchups once week 1 ends.")
+    footer(d)
+
+
+def snapshot(rosters, pool, txn_ids, week):
+    return {"taken": datetime.datetime.now().isoformat(timespec="minutes"), "week": week,
+            "rosters": {str(r["roster_id"]): sorted((r.get("players") or []) + (r.get("reserve") or [])) for r in rosters},
+            "status": {p: pool.get(p, {}).get("injury_status") or "" for r in rosters for p in (r.get("players") or [])},
+            "txns": sorted(txn_ids)}
+
+
+def diff(old, new, txns, team, name):
+    """Lines describing what changed; the Owner's roster first."""
+    out = []
+    for t in txns:
+        if t["transaction_id"] in old["txns"]:
+            continue
+        adds, drops = t.get("adds") or {}, t.get("drops") or {}
+        who = sorted(set(adds.values()) | set(drops.values()) | set(t.get("roster_ids") or []))
+        desc = "; ".join(f"{team(rid)} +{', '.join(name(p) for p, x in adds.items() if x == rid) or '—'}"
+                         f" -{', '.join(name(p) for p, x in drops.items() if x == rid) or '—'}" for rid in who)
+        bid = (t.get("settings") or {}).get("waiver_bid")
+        out.append((MY_ROSTER not in who, f"TXN {t.get('type')} ({t.get('status')}{f', ${bid}' if bid else ''}): {desc}"))
+    for rid, now in new["rosters"].items():
+        before = set(old["rosters"].get(rid, []))
+        plus, minus = set(now) - before, before - set(now)
+        if plus or minus:
+            out.append((rid != str(MY_ROSTER), f"ROSTER {team(int(rid))}: +{', '.join(map(name, sorted(plus))) or '—'} "
+                                               f"-{', '.join(map(name, sorted(minus))) or '—'}"))
+    owner = {p: rid for rid, ps in new["rosters"].items() for p in ps}
+    for p, st in new["status"].items():
+        if p in old["status"] and old["status"][p] != st:
+            rid = owner.get(p)
+            out.append((rid != str(MY_ROSTER), f"STATUS {name(p)} ({team(int(rid)) if rid else '?'}): "
+                                               f"{old['status'][p] or 'healthy'} → {st or 'healthy'}"))
+    return [line for _, line in sorted(out, key=lambda x: x[0])]
+
+
+def cmd_changes(d, a):
+    lid = d["league"]["league_id"]
+    old = json.load(open(SNAPSHOT)) if os.path.exists(SNAPSHOT) else None
+    weeks = range(min(old["week"], d["week"]) if old else d["week"], d["week"] + 1)
+    try:
+        txns = [t for w in weeks for t in draft.get(f"/league/{lid}/transactions/{w}")]
+    except (OSError, ValueError) as e:
+        refuse([f"transactions fetch failed ({e})"])
+    new = snapshot(d["rosters"], d["pool"], [t["transaction_id"] for t in txns], d["week"])
+    if old is None:
+        print("No snapshot yet: baseline saved." if not a.no_write else "No snapshot yet (and --no-write): nothing to compare.")
+    else:
+        lines = diff(old, new, txns, lambda rid: d["team"].get(rid, f"roster {rid}"), lambda p: short(d["pool"], p))
+        print(f"Changes since {old['taken']}:" if lines else f"No changes since {old['taken']}.")
+        for line in lines:
+            print("  " + line)
+    if not a.no_write:
+        os.makedirs(STATE, exist_ok=True)
+        with open(SNAPSHOT + ".tmp", "w") as f:
+            json.dump(new, f)
+        os.replace(SNAPSHOT + ".tmp", SNAPSHOT)
+        print(f"Snapshot advanced to {new['taken']}.")
+    footer(d)
+
+
+# ---------- self-test ----------
+
+def lock_fixture():
+    """Inline league for lock/week tests: eight starters who play daily, A (C, 40/g) at UTIL plays days 2-3,
+    bench B (C, 30/g) plays days 1 and 3; today is day 1."""
+    d1 = datetime.date(2026, 10, 20)
+    days = [d1 + datetime.timedelta(i) for i in range(3)]
+    plays = {f"s{i}": days for i in range(len(SLOTS) - 1)}
+    plays.update(a=days[1:], b=[days[0], days[2]])
+    one = {"G": "PG", "F": "SF", "UTIL": "C"}
+    pos = {f"s{i}": [one.get(s, s)] for i, s in enumerate(SLOTS[:-1])}
+    pos.update(a=["C"], b=["C"])
+    pool = {p: {"full_name": p.upper(), "team": "T" + p, "fantasy_positions": pos[p]} for p in plays}
+    sched = [{"week": 1, "date": day.isoformat(), "home": {"team": "T" + p}, "away": {"team": "Z" + p}}
+             for p, ds in plays.items() for day in ds]
+    starters = [f"s{i}" for i in range(len(SLOTS) - 1)] + ["a"]
+    vals = {p: (10.0, 40.0 if p != "b" else 30.0) for p in plays}
+    return {"pool": pool, "rosters": [{"roster_id": MY_ROSTER, "players": starters + ["b"], "starters": starters, "reserve": []}],
+            "team": {MY_ROSTER: "Us"}, "sched": sched, "week": 1, "today": d1, "vals": vals, "locked": [], "board": [], "lock_path": None}
+
+
+def test_pending_states():
+    from unittest.mock import patch
+    for case in ("missing schedule", "expired", "locked", "missing team", "open", "next game today"):
+        d = lock_fixture()
+        d["league"] = {"season": "2026"}
+        d["today"] = datetime.date(2026, 10, 23) if case == "expired" else datetime.date(2026, 10, 21)
+        if case == "missing schedule":
+            d["sched"] = None
+        if case == "missing team":
+            d["pool"]["a"]["team"] = None
+        if case == "next game today":
+            d["today"] = datetime.date(2026, 10, 22)
+        rows = [{"player_id": "a", "date": "2026-10-21", "stats": {"sp": 1, "pts": 10}},
+                {"player_id": "a", "date": "2026-10-22", "stats": {"sp": 0}}]
+        out = io.StringIO()
+        with patch(__name__ + ".fetch", return_value=rows), contextlib.redirect_stdout(out):
+            cmd_lock(d, argparse.Namespace(player=None, locked="A" if case == "locked" else None))
+        text = out.getvalue()
+        if case in ("open", "next game today"):
+            assert "→ WAIT" in text, text
+            if case == "next game today":
+                assert "(lock before Thu 10/22's tip)" in text, text
+        else:
+            assert "→ LOCK" not in text and "→ WAIT" not in text, (case, text)
+            assert {"missing schedule": "Schedule unavailable", "expired": "window closed",
+                    "locked": "already locked", "missing team": "schedule unavailable"}[case] in text, text
+    for locked in (None, "A"):
+        d = lock_fixture()
+        d["today"] = datetime.date(2026, 10, 23)
+        args = argparse.Namespace(player="A", score=60, locked=locked, slot_of=None,
+                                  game=datetime.date(2026, 10, 21), remaining=None, play=None)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            try:
+                cmd_lock(d, args)
+            except SystemExit as error:
+                assert locked is None and "window closed" in str(error), error
+            else:
+                assert locked and "already locked" in out.getvalue(), out.getvalue()
+        assert "→ LOCK" not in out.getvalue() and "→ WAIT" not in out.getvalue()
+
+
+
+def test_pooled_locks():
+    """Bench scores pool across idle starters' slots (issue #26): seat every bench player, rank scores vs lines."""
+    from unittest.mock import patch
+    # Sorted pairing: the best score takes the cheapest slot; 60 and 50 vs 48.3/53.3 locks 60 only (113.3 > 110).
+    assert joint_locks({1: 60.0, 2: 50.0}, {1: 70, 2: 70, 3: 48.3, 4: 53.3}, {1: {3, 4}, 2: {3, 4}}) == {1: 3}
+    assert joint_locks({1: 60.0, 2: 55.0}, {1: 70, 2: 70, 3: 48.3, 4: 53.3}, {1: {3, 4}, 2: {3, 4}}) == {1: 3, 2: 4}
+    # A feed whose own slot another feed closes can't lock there (9 = 60 - 50 - MOVE_COST beats 58 - 50).
+    assert joint_locks({1: 60.0, 2: 58.0}, {1: 70, 2: 50}, {1: {2}}) == {1: 2}
+    assert joint_locks({1: 40.0}, {1: 70, 3: 48.3}, {1: {3}}) == {}
+
+    d = lock_fixture()
+    tue, wed = d["today"], d["today"] + datetime.timedelta(1)
+    # S6 (C) sits Tue, A (C, UTIL) is strong; bench B (C) and W (C/PF, 28/g) both play Tue.
+    d["sched"] = [g for g in d["sched"] if not (g["home"]["team"] == "Ts6" and g["date"] == tue.isoformat())]
+    d["sched"].append({"week": 1, "date": tue.isoformat(), "home": {"team": "Tw"}, "away": {"team": "Zw"}})
+    d["vals"].update(a=(30.0, 70.0), w=(10.0, 28.0))
+    d["pool"]["w"] = {"full_name": "W", "team": "Tw", "fantasy_positions": ["C", "PF"]}
+    d["rosters"][0]["players"].append("w")
+    # W can't beat A's line alone, but he is seated and his score can close S6's cheaper C slot.
+    assert week_context(d)["plan"][tue] == {6: "b", 8: "w"}
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_week(d, argparse.Namespace(locked=None))
+    assert "W (UTIL for A) ≥ 72.4 or ≥ 44.3 via C (S6's)" in out.getvalue(), out.getvalue()
+
+    d["today"], d["league"] = wed, {"season": "2026"}
+    d["rosters"][0]["starters"][6], d["rosters"][0]["starters"][8] = "b", "w"
+    for w_pts, want in ((50, ["C    B: 45.0 FP → LOCK (slot wait value 43.3",
+                              "UTIL W: 50.0 FP → LOCK via UTIL 43.9 (S7's slot): move A to UTIL and bench S7",
+                              "S7: 40.0 FP → PASS (W's lock in UTIL closes this slot"]),
+                        (40, ["C    B: 45.0 FP → LOCK (slot wait value 43.3",
+                              "W: 40.0 FP → WAIT (slot wait value 72.4: Wed A, Thu A; cheapest other slot he reaches: "
+                              "43.9 via UTIL, S7's slot)", "S7: 40.0 FP → WAIT"])):
+        rows = [dict(player_id=p, date=tue.isoformat(), stats=dict(sp=1, pts=x)) for p, x in (("b", 45), ("w", w_pts), ("s7", 40))]
+        with patch(__name__ + ".fetch", return_value=rows), contextlib.redirect_stdout(io.StringIO()) as out:
+            pending_locks(d, d["rosters"][0], week_games(d["sched"], 1))
+        for line in want:
+            assert line in out.getvalue(), (line, out.getvalue())
+
+
+def test_lock_continuations():
+    """Applied feeder rotations and injury overrides must retain a stronger returner's future roll."""
+    from unittest.mock import patch
+    d = lock_fixture()
+    tue, wed, thu = [d["today"] + datetime.timedelta(i) for i in range(3)]
+    d["vals"].update({f"s{i}": (50.0, 100.0) for i in range(8)})
+    d["vals"]["a"] = (30.0, 70.0)
+    d["sched"] = [g for g in d["sched"] if not (g["home"]["team"] == "Ta" and g["date"] == wed.isoformat())]
+    d["today"], d["league"] = wed, {"season": "2026"}
+    args = argparse.Namespace(player="B", score=40, locked=None, slot_of=None, game=tue, remaining=None, play=None)
+    d["rosters"][0]["starters"][-1] = "b"  # Tuesday's feed has actually been applied in Sleeper.
+    expected = wait_value(70, [1 - Q_DNP])
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_lock(d, args)
+    assert f"B: 40.0 FP → WAIT (slot wait value {expected:.1f}:" in out.getvalue(), out.getvalue()
+    assert "Thu A" in out.getvalue(), out.getvalue()
+    out = io.StringIO()
+    with patch(__name__ + ".fetch", return_value=[dict(player_id="b", date=tue.isoformat(), stats=dict(sp=1, pts=40))]), \
+            contextlib.redirect_stdout(out):
+        pending_locks(d, d["rosters"][0], week_games(d["sched"], 1))
+    assert f"B: 40.0 FP → WAIT (slot wait value {expected:.1f}:" in out.getvalue(), out.getvalue()
+
+    # A feeder already allocated elsewhere that day is not available to this slot.
+    w = week_context(d, sleeper_base=True)
+    w["plan"][thu][6] = "a"
+    assert abs(slot_rest(w, 8, tue)[0] - wait_value(30, [1 - Q_DNP])) < 1e-9
+
+    # Explicit anchors and either override must retain the returning player, even when B has no future roll.
+    d["rosters"][0]["starters"][-1] = "a"
+    args.slot_of = "A"
+    for remaining, probability in ((None, 0.0), (0, None), (0, 0.0), (1, 0.92)):
+        args.remaining, args.play = remaining, probability
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cmd_lock(d, args)
+        assert f"B: 40.0 FP → WAIT (slot wait value {expected:.1f}:" in out.getvalue(), out.getvalue()
+        assert "other slot options are retained" in out.getvalue(), out.getvalue()
+
+    # Overrides also affect the starter itself; the bench remains usable on his ruled-out date.
+    args.player, args.slot_of, args.score, args.remaining, args.play = "A", None, 25, 0, None
+    d["sched"].append(dict(week=1, date=tue.isoformat(), home=dict(team="Ta"), away=dict(team="Za")))
+    args.game = tue
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_lock(d, args)
+    assert "A: 25.0 FP → WAIT (slot wait value 27.7:" in out.getvalue(), out.getvalue()
+    assert "Thu B" in out.getvalue(), out.getvalue()
+
+    # A count override skips the earliest dates, not the final one, without removing A's Thursday roll.
+    sun = tue + datetime.timedelta(5)
+    d["sched"].append(dict(week=1, date=sun.isoformat(), home=dict(team="Tb"), away=dict(team="Zb")))
+    args.player, args.slot_of, args.score, args.remaining = "B", "A", 40, 1
+    expected = stop_value([[(70, 1 - Q_DNP)], [(30, 1 - Q_DNP)]])
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_lock(d, args)
+    assert f"B: 40.0 FP → WAIT (slot wait value {expected:.1f}:" in out.getvalue(), out.getvalue()
+    assert "Thu A, Sun B" in out.getvalue(), out.getvalue()
+    args.locked = "A"
+    with contextlib.redirect_stdout(io.StringIO()):
+        try:
+            cmd_lock(d, args)
+        except SystemExit as error:
+            assert "already locked" in str(error), error
+        else:
+            raise AssertionError("a locked anchor accepted another score")
+
+
+def run_fa(d):
+    """cmd_fa on a lock_fixture league, offline (no transactions, trending adds or box scores)."""
+    from unittest.mock import patch
+    d = dict(d, league={"league_id": "L", "season": "2026", "settings": {"waiver_clear_days": 2}}, notes={})
+    d["rosters"][0].setdefault("settings", {"waiver_position": 10})
+    out = io.StringIO()
+    with patch("draft.get", return_value=[]), patch(__name__ + ".trending_adds", return_value=None), \
+            patch.object(rb, "season_weeks", side_effect=OSError("offline")), contextlib.redirect_stdout(out):
+        cmd_fa(d, argparse.Namespace(locked=None, pos=None, top=15))
+    return out.getvalue()
+
+
+def fa_fixture():
+    """lock_fixture on Wed: free agents F (plays Thu) and G (played Tue, plays Thu), both C at 80 FP/g."""
+    d = lock_fixture()
+    tue, thu = d["today"], d["today"] + datetime.timedelta(2)
+    d["today"] = tue + datetime.timedelta(1)
+    for p, days in (("f", [thu]), ("g", [tue, thu])):
+        d["pool"][p] = {"full_name": p.upper(), "team": "T" + p, "fantasy_positions": ["C"], "active": True}
+        d["sched"] += [{"week": 1, "date": day.isoformat(), "home": {"team": "T" + p}, "away": {"team": "Z" + p}} for day in days]
+        d["vals"][p] = (10.0, 80.0)
+    d["board"] = ["f", "g"]
+    return d
+
+
+def test_fa_waivers():
+    # waiver_after_game_start (regression: G, whose team played yesterday, was offered as an instant add and stream).
+    text = run_fa(fa_fixture())
+    assert "add F (Tf" in text and "add G" not in text, text
+    assert "WAIVERS (played Tue)" in next(line for line in text.splitlines() if line.strip().startswith("#2")), text
+    assert "become waiver claims once their team tips" in text, text
+    # A stream must gain >= 5 FP this week and beat 3x its season cost (regression: a +0.6 stream that cost
+    # -1.8 V/wk led the list). F at 47 FP/g gains +4.4 at no season cost; at 50 FP/g, +6.2 vs 3 x (4 - 0) = 12
+    # is hidden and vs 3 x (4 - 3) = 3 is shown.
+    for fpg, v_fa, shown in ((47.0, 10.0, False), (50.0, 0.0, False), (50.0, 3.0, True)):
+        d = fa_fixture()
+        d["vals"].update(f=(v_fa, fpg), b=(4.0, 30.0))
+        text = run_fa(d)
+        assert ("add F (Tf" in text) == shown and ("No stream beats its season cost this week." in text) != shown, text
+
+
+def test_lock_commits():
+    """lock --commit records persist per week and feed week/fa/matchup; --locked overrides them."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        dd = lock_fixture()
+        assert lock_path(dd) is None and saved_locks(dd) == {} and locked_pids(dd, None) == []  # fixtures never read private/state
+        dd["lock_path"] = os.path.join(tmp, "locks.json")
+        args = lambda player, score=None, commit=True, uncommit=False: argparse.Namespace(
+            player=player, score=score, commit=commit, uncommit=uncommit, locked=None, slot_of=None, game=None, remaining=None, play=None)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            cmd_lock(dd, args("S0", 55))
+        assert saved_locks(dd) == {"s0": 55.0} and "Recorded lock: S0 at 55.0" in out.getvalue(), out.getvalue()
+        assert locked_pids(dd, None) == ["s0"] and locked_pids(dd, "") == [] and locked_pids(dd, "A") == ["a"]
+        dd["locked"] = locked_pids(dd, None)
+        assert week_context(dd)["blocked"] == {0}  # week (and fa, via locked_pids) treat the slot as locked, no flag
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            cmd_week(dd, argparse.Namespace(locked=None))
+        assert "plus 55.0 already locked" in out.getvalue() and "S0 55.0" in out.getvalue(), out.getvalue()
+        for bad in (args("B", 40), args("S1")):  # B is on the bench; a commit needs the score
+            try:
+                cmd_lock(dd, bad)
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError(bad)
+        # A record for a player Sleeper shows on the bench adds nothing to the week total (no double count).
+        bench_rec = dict(dd, locked=["b"], rosters=[dict(dd["rosters"][0])])
+        with open(dd["lock_path"], "w") as f:
+            json.dump({"b": 40.0}, f)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            cmd_week(bench_rec, argparse.Namespace(locked=None))
+        assert "already locked" not in out.getvalue(), out.getvalue()
+        with open(dd["lock_path"], "w") as f:
+            json.dump({"s0": 55.0}, f)
+        # Unreadable records block a commit rather than being overwritten; a non-current week is refused.
+        with open(dd["lock_path"], "w") as f:
+            f.write("{not json")
+        for bad_d in (dd, dict(dd, state={"week": 2})):
+            try:
+                cmd_lock(bad_d, args("S1", 40))
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError("commit should refuse")
+        with open(dd["lock_path"], "w") as f:
+            json.dump({"s0": 55.0}, f)
+        # The recorded score is our known score for that slot in win odds (zero variance).
+        dd["lock_scores"] = {"s0": 55.0}
+        hi = team_score(dd, MY_ROSTER, {}, True)
+        dd["lock_scores"] = {"s0": 0.0}
+        lo = team_score(dd, MY_ROSTER, {}, True)
+        assert abs(hi[0] - lo[0] - 55.0) < 1e-9 and abs(hi[1] - lo[1]) < 1e-9, (hi, lo)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_lock(dd, args("S0", commit=False, uncommit=True))
+        assert saved_locks(dd) == {}
+        # Each week has its own file, so records reset when the week changes.
+        wk = dict(lock_fixture(), league={"season": "2026"})
+        del wk["lock_path"]  # use the real naming rule (path only; nothing is read or written)
+        p1 = lock_path(wk)
+        wk["week"] = 2
+        assert p1.endswith("locks-2026-w01.json") and lock_path(wk).endswith("locks-2026-w02.json")
+
+
+def test_tip_clock():
+    """ESPN tips (trimmed from the Nov 1 2026 scoreboard), CT across both DST changes, the Sleeper cross-check and
+    fallback, slot deadlines, and no feeds after a tip."""
+    import tempfile
+    from unittest.mock import patch
+    U = datetime.datetime
+    for utc, want in ((U(2026, 10, 20, 23), U(2026, 10, 20, 18)), (U(2026, 11, 1, 6, 59), U(2026, 11, 1, 1, 59)),
+                      (U(2026, 11, 1, 7), U(2026, 11, 1, 1)), (U(2026, 11, 3), U(2026, 11, 2, 18)),
+                      (U(2027, 3, 14, 7, 59), U(2027, 3, 14, 1, 59)), (U(2027, 3, 14, 8), U(2027, 3, 14, 3))):
+        assert ct(utc) == want, (utc, ct(utc))
+    espn = {"events": [{"date": "2026-11-01T20:30Z", "competitions": [{"competitors": [
+        {"homeAway": "home", "team": {"abbreviation": "ORL"}}, {"homeAway": "away", "team": {"abbreviation": "BOS"}}]}]},
+        {"date": "2026-11-02T01:30Z", "competitions": [{"competitors": [
+            {"homeAway": "home", "team": {"abbreviation": "GS"}}, {"homeAway": "away", "team": {"abbreviation": "LAC"}}]}]}]}
+    assert espn_tips(espn) == [["BOS", "ORL", "2026-11-01T20:30Z"], ["LAC", "GSW", "2026-11-02T01:30Z"]]
+    nov1 = datetime.date(2026, 11, 1)
+    sched = [{"week": 3, "date": "2026-11-01", "away": {"team": aw}, "home": {"team": h}}
+             for aw, h in (("BOS", "ORL"), ("LAC", "GSW"), ("BKN", "IND"))]  # ESPN lacks BKN@IND: date-level
+    with tempfile.TemporaryDirectory() as tmp, patch(__name__ + ".CACHE", tmp):
+        out = io.StringIO()
+        with patch(__name__ + ".fetch", return_value=espn) as f, contextlib.redirect_stdout(out):
+            tips = tip_times(sched, [nov1])
+            assert tip_times(sched, [nov1]) == tips and f.call_count == 1  # cached for the day
+        assert "no ESPN tip time for 1 game(s) (Sun BKN@IND)" in out.getvalue(), out.getvalue()
+    with tempfile.TemporaryDirectory() as tmp, patch(__name__ + ".CACHE", tmp), \
+            patch(__name__ + ".fetch", side_effect=OSError("offline")), contextlib.redirect_stdout(io.StringIO()) as out:
+        assert tip_times(sched, [nov1]) == {} and "(offline)" in out.getvalue()
+    with patch.dict(CLOCK, tips=tips):
+        assert tip_text(nov1, "ORL") == "Sun 11/01 2:30 PM CT tip" and tip_text(nov1, "GSW") == "Sun 11/01 7:30 PM CT tip"
+        assert tip_text(nov1, "BKN") == "Sun 11/01's tip" and not tipped(nov1, "ORL")  # --date run: no clock
+
+    # The deadline is the slot's next tip, not his own next game (regression: B fed into A's UTIL on Tue, next game
+    # Thu, printed "lock before Thu" while the plan moves A back into the slot for his Wed game).
+    d = lock_fixture()
+    tue, wed, thu = [d["today"] + datetime.timedelta(i) for i in range(3)]
+    d["rosters"][0]["starters"][-1] = "b"
+    args = argparse.Namespace(player="B", score=40, locked=None, slot_of=None, game=tue, remaining=None, play=None)
+    for tips, want in (({}, "Deadline: lock before Wed 10/21's tip, when the plan moves A into his slot"),
+                       ({(wed, "Ta"): U(2026, 10, 21, 23)}, "Deadline: lock before Wed 10/21 6:00 PM CT tip, when")):
+        with patch.dict(CLOCK, tips=tips), contextlib.redirect_stdout(io.StringIO()) as out:
+            cmd_lock(d, args)
+        assert want in out.getvalue(), out.getvalue()
+
+    # No feed for a bench player whose game has tipped: B (Tue) fills idle UTIL until Tb tips on a live clock.
+    d = lock_fixture()
+    w = week_context(d)
+    assert w["plan"][tue] == {8: "b"} and slot_rest(w, 8, tue - datetime.timedelta(1))[1][0] == (tue, "b")
+    with patch.dict(CLOCK, now=U(2026, 10, 20, 23, 30), tips={(tue, "Tb"): U(2026, 10, 20, 23)}):
+        w = week_context(d)
+        assert w["plan"][tue] == {} and slot_rest(w, 8, tue - datetime.timedelta(1))[1][0] == (wed, "a")
+        # fa: a free agent whose team tipped today is a waiver claim, not a stream (F also plays Wed here).
+        d = fa_fixture()
+        d["sched"].append({"week": 1, "date": wed.isoformat(), "home": {"team": "Tf"}, "away": {"team": "Zf"}})
+        CLOCK.update(now=U(2026, 10, 21, 23, 30), tips={(wed, "Tf"): U(2026, 10, 21, 23)})
+        text = run_fa(d)
+        assert "WAIVERS (played Wed)" in next(x for x in text.splitlines() if x.strip().startswith("#1")) and "add F" not in text, text
+
+
+def test_reuse():
+    """Same-night slot reuse: needs both tip times at least REUSE_GAP apart, skips locked slots, orders the rolls by
+    tip, moves the early score's deadline to the late tip, and prints the swap in week."""
+    from unittest.mock import patch
+    U = datetime.datetime
+    d = lock_fixture()  # Thu: every starter and bench B (C, 30/g) play, so B feeds nothing without reuse
+    tue, wed, thu = [d["today"] + datetime.timedelta(i) for i in range(3)]
+    early = {(thu, "T" + p): U(2026, 10, 23, 0) for p in ["a"] + [f"s{i}" for i in range(len(SLOTS) - 1)]}
+
+    def ctx(b_tip, dd=d):
+        with patch.dict(CLOCK, tips={**early, (thu, "Tb"): b_tip}):
+            return week_context(dd)
+    assert not any(ctx(None)["extra"].values()) and not any(ctx(U(2026, 10, 23, 2, 30))["extra"].values())  # no tip; 2.5 h
+    w = ctx(U(2026, 10, 23, 3))
+    (i, (q, late)), = w["extra"][thu].items()
+    assert q == "b" and late and SLOTS[i] in ("C", "UTIL") and not w["plan"][thu], w["extra"]
+    feeds, extra = feeds_of(w, i)
+    assert stop_value(slot_days(w["left"], w["base"][i], feeds, w["games"], w["fpg"], extra)) > \
+        stop_value(slot_days(w["left"], w["base"][i], feeds, w["games"], w["fpg"]))
+    with patch.dict(CLOCK, tips={**early, (thu, "Tb"): U(2026, 10, 23, 3)}):
+        assert team_score(d, MY_ROSTER, {}, False)[0] > team_score(dict(d, pool={**d["pool"], "b": dict(d["pool"]["b"], team="Tx")}),
+                                                                   MY_ROSTER, {}, False)[0]
+    # The early starter's Thu score now has a same-night continuation (B), due at B's tip; B's own score has none.
+    dt = dict(d, today=thu)
+    with patch.dict(CLOCK, tips={**early, (thu, "Tb"): U(2026, 10, 23, 3)}):
+        w = week_context(dt)
+        (i, _), = w["extra"][thu].items()
+        occ = w["base"][i]
+        rest, fills = slot_rest(w, i, thu, occ)
+        assert fills == [(thu, "b")] and abs(rest - wait_value(30, [w["games"]["b"][thu]])) < 1e-9, (rest, fills)
+        assert slot_rest(w, i, thu, "b") == (0.0, [])
+        assert deadline(dt["pool"], occ, [], fills) == (thu, "Tb", "b")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            cmd_week(dt, argparse.Namespace(locked=None))
+        text = out.getvalue()
+        assert f"same night, {SLOTS[i]}: {occ.upper()} plays the Thu 10/22 7:00 PM CT tip; once that game is final" in text, text
+        assert "then put B in" in text and "before the 10:00 PM CT tip" in text and "same-night reuse +" in text, text
+    # B early, the slot's starter late: B goes first and the starter returns for the late tip.
+    with patch.dict(CLOCK, tips={**{k: U(2026, 10, 23, 3) for k in early}, (thu, "Tb"): U(2026, 10, 23, 0)}):
+        w = week_context(dt)
+        (i, (q, late)), = w["extra"][thu].items()
+        assert q == "b" and not late
+        assert slot_rest(w, i, thu, "b")[1] == [(thu, w["base"][i])]
+    # A later night's reuse rolls count in a score's continuation, and the early swap sets its deadline: A's Wed
+    # score, then B early Thu in A's slot (the starters' Thu tips match B's, so only A's slot qualifies), A late.
+    tips = {**{k: U(2026, 10, 23, 0) for k in early}, (thu, "Ta"): U(2026, 10, 23, 3), (thu, "Tb"): U(2026, 10, 23, 0)}
+    dw = dict(d, today=wed, league={"season": "2026"})
+    with patch.dict(CLOCK, tips=tips):
+        w = week_context(dw)
+        assert w["extra"][thu] == {8: ("b", False)}, w["extra"]
+        rest, fills = slot_rest(w, 8, wed, "a")
+        assert fills == [(thu, "b"), (thu, "a")], fills
+        assert abs(rest - stop_value([[(30, w["games"]["b"][thu])], [(40, w["games"]["a"][thu])]])) < 1e-9, rest
+        assert deadline(dw["pool"], "a", [thu], fills) == (thu, "Tb", "b")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            cmd_lock(dw, argparse.Namespace(player="A", score=35, locked=None, slot_of=None, game=wed, remaining=None, play=None))
+        assert "then Thu B, Thu A available" in out.getvalue() and "lock before Thu 10/22 7:00 PM CT tip" in out.getvalue(), out.getvalue()
+    # A DTD late roll keeps tonight's injury discount: A's early Thu score faces B at 0.50, not 0.92.
+    tips = {**{k: U(2026, 10, 23, 3) for k in early}, (thu, "Ta"): U(2026, 10, 23, 0), (thu, "Tb"): U(2026, 10, 23, 3)}
+    dd = dict(dt, pool={**d["pool"], "b": dict(d["pool"]["b"], injury_status="DTD")}, league={"season": "2026"})
+    with patch.dict(CLOCK, tips=tips):
+        w = week_context(dd)
+        assert w["extra"][thu] == {8: ("b", True)} and w["games"]["b"][thu] == P_DTD[0], (w["extra"], w["games"]["b"])
+        assert abs(slot_rest(w, 8, thu, "a")[0] - wait_value(30, [P_DTD[0]])) < 1e-9
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            cmd_lock(dd, argparse.Namespace(player="A", score=20, locked=None, slot_of=None, game=thu, remaining=None, play=None))
+        assert "A: 20.0 FP → LOCK" in out.getvalue(), out.getvalue()
+    # A locked slot takes no reuse roll.
+    dl = dict(d, locked=["a"])
+    with patch.dict(CLOCK, tips={**early, (thu, "Tb"): U(2026, 10, 23, 3)}):
+        w = week_context(dl)
+        assert all(w["base"][j] != "a" for j in w["extra"][thu]), w["extra"]
+
+
+def test_review():
+    """review: a lock at/below the line, no lock with a DNP final, a 0-game slot, a feed, unknown box scores."""
+    from unittest.mock import patch
+    d = lock_fixture()
+    d1, d2, d3 = (datetime.date(2026, 10, 20 + k) for k in range(3))
+    d.update(league={"season": "2026", "league_id": "L"}, today=datetime.date(2026, 10, 26))
+    d["pool"]["s3"]["team"] = "TX"  # SF: no games this week
+    scores = {p: {day: 40.0 for day in (d1, d2, d3)} for p in ("s4", "s5", "s6", "s7")}
+    scores.update(s0={d1: 60.0, d2: 30.0, d3: 30.0}, s1={d1: 35.0, d2: 50.0, d3: 20.0}, s2={d1: 30.0, d2: 30.0},
+                  a={d2: 20.0, d3: 45.0}, b={d1: 25.0, d3: 30.0})
+    rows = [{"player_id": p, "date": day.isoformat(), "stats": {"sp": 30, "pts": fp}} for p, g in scores.items() for day, fp in g.items()]
+    tmp = tempfile.TemporaryDirectory()
+    d["lock_path"] = os.path.join(tmp.name, "locks.json")
+    with open(d["lock_path"], "w") as f:
+        json.dump({"s0": 60.0, "s1": 35.0, "s5": 40.0}, f)  # s5 scored 40 in all three games
+    del d["vals"]["s4"]  # PF: played every game, no board projection
+
+    def run(fetched, matchups):
+        out = io.StringIO()
+        with patch(__name__ + ".fetch", side_effect=fetched), patch("draft.get", side_effect=matchups), contextlib.redirect_stdout(out):
+            cmd_review(d, argparse.Namespace(week=1))
+        return out.getvalue()
+
+    text = run([rows], OSError("offline"))
+    row = {}  # slot -> (counted, from, policy, hindsight, leak, cause); the second UTIL as "UTIL2"
+    for line in text.splitlines():
+        m = re.match(r"  (\S+)\s+\S+\s+(-?[\d.]+) \(([^)]*)\)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)  (.*)", line)
+        if m and m.group(1) in SLOTS:
+            key = m.group(1) + ("2" if m.group(1) in row else "")
+            row[key] = tuple(float(x) if k in (1, 3, 4, 5) else x for k, x in enumerate(m.groups()) if k)
+    assert row["PG"][:3] == (60.0, "lock", 60.0) and "below line" not in row["PG"][5], row["PG"]
+    assert row["SG"][:3] == (35.0, "lock", 50.0) and row["SG"][4] == 15.0 and "locked below line" in row["SG"][5], row["SG"]
+    assert row["G"][:2] == (0.0, "final game") and "his final game: DNP" in row["G"][5], row["G"]
+    assert row["SF"][:4] == (0.0, "no games", 0.0, 0.0) and "0-game slot" in row["SF"][5], row["SF"]
+    assert row["F"][:3] == (40.0, "lock", 40.0) and "below line" not in row["F"][5], row["F"]  # Codex P2: the later 40
+    pf = next(line for line in text.splitlines() if line.startswith("  PF"))
+    assert "PF" not in row and " n/a " in pf and "no board projection for S4: policy unknown" in pf and "0-game" not in pf, pf
+    assert "policy unknown in 1 slot(s)" in text and "counted 260.0 | policy 275.0 | hindsight 305.0" in text, text
+    assert row["UTIL2"][:2] == (45.0, "final game") and "1 feed(s) planned, adherence unknown" in row["UTIL2"][5], row["UTIL2"]
+    assert "Outcome line: week 1 execution" in text and "largest leak SG" in text, text
+    # Sleeper's slot points: shows the latest game for a locked slot -> flagged for issue #7.
+    ms = [{"roster_id": MY_ROSTER, "starters": d["rosters"][0]["starters"], "starters_points": [30.0, 35.0] + [0.0] * 7}]
+    text = run([rows], [ms])
+    assert "equal the lock record in 1 of 3" in text and "issue #7" in text, text
+    text = run(OSError("offline"), [ms])
+    assert "counted, policy and hindsight unknown" in text and "Totals" not in text, text
+    tmp.cleanup()
+    # The week is over on a later day, or on its last day once every game there tipped 3 h ago (Codex P2: Sunday night).
+    sun, now = datetime.date(2026, 10, 25), datetime.datetime(2026, 10, 26, 3, 0)
+    sched = [{"date": "2026-10-25", "home": {"team": "H"}, "away": {"team": "A"}}]
+    assert week_over(sched, sun, sun + datetime.timedelta(1), now) and not week_over(sched, sun, sun - datetime.timedelta(1), now)
+    assert week_over(sched, sun, sun, None)  # a --date dry run
+    for tip, over in ((now - datetime.timedelta(hours=3), True), (now - datetime.timedelta(hours=2), False), (None, False)):
+        with patch(__name__ + ".tip_times", return_value={(sun, "A"): tip, (sun, "H"): tip} if tip else {}):
+            assert week_over(sched, sun, sun, now) is over, (tip, over)
+
+
+def test_review_pooled():
+    """review replays pooled locks (issue #26): a via lock is credited, paired by player, and judged on its via line."""
+    from unittest.mock import patch
+    # replay, q26's case: b's 45 Mon in UTIL (j's) closes C via one hop (j moves to C); j's 70 then stands in C.
+    d1, d2 = datetime.date(2025, 11, 3), datetime.date(2025, 11, 4)
+    games = {"j": {d2: 0.92}, "c": {d2: 0.92}, "b": {d1: 0.92}}
+    out, lines, vias = replay({7: "j", 6: "c"}, {7: [(d1, "b"), (d2, "j")], 6: [(d2, "c")]}, [d1, d2], games,
+                              {"j": 80.0, "c": 40.0, "b": 30.0}, {"b": {d1: 45.0}, "j": {d2: 70.0}, "c": {d2: 30.0}},
+                              {p: ["C"] for p in "jcb"})
+    assert out == {7: ("b", 45.0), 6: ("j", 70.0)} and vias == 1, (out, vias)
+    assert abs(lines[("b", d1)] - (stop_value([[(40.0, 0.92)]]) + MOVE_COST)) < 1e-9, lines  # C's line + 1, not j's
+
+    # test_pooled_locks' week: W (bench, UTIL for A) scores 50 Tue; the Owner locked him via S7's UTIL (A moves there).
+    d = lock_fixture()
+    tue, wed, thu = (d["today"] + datetime.timedelta(k) for k in range(3))
+    d["sched"] = [g for g in d["sched"] if not (g["home"]["team"] == "Ts6" and g["date"] == tue.isoformat())]
+    d["sched"].append({"week": 1, "date": tue.isoformat(), "home": {"team": "Tw"}, "away": {"team": "Zw"}})
+    d["vals"].update(a=(30.0, 70.0), w=(10.0, 28.0))
+    d["pool"]["w"] = {"full_name": "W", "team": "Tw", "fantasy_positions": ["C", "PF"]}
+    d["rosters"][0]["players"].append("w")
+    d["rosters"][0]["starters"][7], d["rosters"][0]["starters"][8] = "a", "w"
+    d.update(league={"season": "2026", "league_id": "L"}, today=datetime.date(2026, 10, 26))
+    scores = {p: {day: 40.0 for day in (tue, wed, thu)} for p in ("s0", "s1", "s2", "s3", "s4", "s5", "s7")}
+    scores.update(s6={wed: 40.0, thu: 40.0}, a={wed: 40.0, thu: 60.0}, b={tue: 45.0, thu: 30.0})
+    tmp = tempfile.TemporaryDirectory()
+    d["lock_path"] = os.path.join(tmp.name, "locks.json")
+    for w_pts, want in ((50.0, ["  UTIL W                       50.0 (lock)        50.0      50.0   0.0  \n",
+                                "  UTIL A                       60.0 (final game)   60.0",
+                                "counted 390.0 | policy 395.0", "largest leak C +5.0", "(policy: B)", "1 via lock(s)"]),
+                        (42.0, ["locked below line 43.", "counted 382.0 | policy 385.0"])):
+        sc = dict(scores, w={tue: w_pts})
+        rows = [{"player_id": p, "date": day.isoformat(), "stats": {"sp": 30, "pts": fp}} for p, g in sc.items() for day, fp in g.items()]
+        with open(d["lock_path"], "w") as f:
+            json.dump({"w": w_pts}, f)
+        out = io.StringIO()
+        with patch(__name__ + ".fetch", return_value=rows), patch("draft.get", side_effect=OSError("offline")), contextlib.redirect_stdout(out):
+            cmd_review(d, argparse.Namespace(week=1))
+        for line in want:
+            assert line in out.getvalue(), (line, out.getvalue())
+    tmp.cleanup()
+
+
+def test():
+    test_review()
+    test_review_pooled()
+    test_reuse()
+    test_tip_clock()
+    test_lock_commits()
+    test_pending_states()
+    test_lock_continuations()
+    test_pooled_locks()
+    test_fa_waivers()
+    assert SCORING is rb.SCORING and len(SCORING) == 11  # regression: gm.py once kept its own copy (issue #7)
+    cfg = {"league_id": "L", "user_id": "u4"}
+    league = {"league_id": "L", "sport": "nba", "roster_positions": list(ROSTER_POSITIONS),
+              "scoring_settings": dict(SCORING, dd=0.0, bonus_pt_40p=0.0),
+              "settings": {"reserve_allow_out": 0, "reserve_slots": 2}}
+    rosters = [{"roster_id": 4, "owner_id": "u4", "players": [], "starters": []}]
+    assert validate(cfg, league, rosters) == []
+    for broken in (dict(league, scoring_settings=dict(SCORING, to=-1.0)),
+                   dict(league, roster_positions=ROSTER_POSITIONS[:-1]),
+                   dict(league, settings={"reserve_allow_out": 1, "reserve_slots": 2}),
+                   dict(league, sport="nfl"), None):
+        assert validate(cfg, broken, rosters), broken
+    assert validate(cfg, league, [{"roster_id": 4, "owner_id": "x"}]) and validate(cfg, league, [])
+    assert validate(cfg, league, [{"roster_id": 4, "owner_id": "x", "co_owners": ["u4"]}]) == []
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            refuse(validate(cfg, dict(league, sport="nfl"), rosters))
+    except SystemExit as e:
+        assert str(e.code).startswith("REFUSING:") and e.code != 0
+    else:
+        raise AssertionError("validation mismatch did not refuse")
+
+    # Lock math: q = 0 is rebuild_board.lock_values (1-left threshold = mean); thresholds rise with games left.
+    for ppg in (30, 48.5, 73.9):
+        assert all(abs(stop_value([[(ppg, 1.0)]] * k) - rb.lock_values(ppg, 5)[k]) < 1e-9 for k in range(6))
+        t = thresholds(ppg)
+        assert abs(t[0] - (1 - Q_DNP) * ppg) < 0.5 and all(x < y for x, y in zip(t, t[1:])), t
+        assert all(x < y for x, y in zip(thresholds(ppg, 0.12), thresholds(ppg)))  # B2B risk lowers the wait value
+        t0 = thresholds(ppg, 0.0)
+        assert abs(t0[0] - ppg) < 0.5 and all(abs(x - y) < 1e-9 for x, y in zip(t0, rb.lock_values(ppg, 5)[1:]))
+    # Backtest oracle (2025-26 logs): lock thresholds as a multiple of FP/g with 1-4 games left at q = 0.08.
+    for ppg, want in ((30, (0.92, 1.13, 1.24, 1.32)), (50, (0.92, 1.08, 1.17, 1.22)), (75, (0.92, 1.04, 1.11, 1.15))):
+        got = [x / ppg for x in thresholds(ppg)[:4]]
+        assert all(abs(g - w) <= 0.01 for g, w in zip(got, want)), (ppg, got)
+    d0 = datetime.date(2026, 10, 24)
+    assert play_on(d0, {d0 - datetime.timedelta(1)}) == 1 - Q_B2B and play_on(d0, {d0 - datetime.timedelta(2)}) == 1 - Q_DNP
+    assert "→ LOCK (wait value" in lock_report("A", 50, 48.5, [0.92])[0]
+    assert "WAIT" in lock_report("A", 46, 48.5, [1.0])[0] and "LOCK" in lock_report("A", 46, 48.5, [0.92])[0]
+    assert "LOCK" in lock_report("A", 10, 48.5, [])[0]
+    # Slot options on a day only a feeder plays (regression: KeyError on the starter's play chance).
+    d1, d2, d3 = (datetime.date(2026, 10, 20) + datetime.timedelta(i) for i in range(3))
+    opts = slot_options([d1, d2, d3], {d1: 0.92, d3: 0.92}, 40, [(35, play_map({d2, d3}))])
+    assert opts == [[(40, 0.92)], [(35, 1 - Q_DNP)], [(40, 0.92), (35, 1 - Q_B2B)]], opts
+    alone = stop_value([[(40, 1.0)], [], [(40, 1.0)]])
+    fed = stop_value([[(40, 1.0)], [(35, 1.0)], [(40, 1.0)]])
+    assert fed > alone and abs(alone - thresholds(40, 0.0)[1]) < 1e-9
+
+    # Lock judges the slot, not the player (regression: a bench player rotated into a starter's slot was
+    # called LOCK on his own games while the starter refills the slot; week's lock line said WAIT).
+    dd = lock_fixture()
+    a_slot = len(SLOTS) - 1
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_week(dd, argparse.Namespace(locked=None))
+    w = week_context(dd, sleeper_base=True)
+    assert w["plan"][dd["today"]] == {a_slot: "b"}, w["plan"]
+    want = slot_rest(w, a_slot, dd["today"])[0]
+    assert f"B (UTIL for A) ≥ {want:.1f}" in out.getvalue(), out.getvalue()
+    for anchor in ("a", None):  # --slot-of A, or inferred from week's plan
+        slot = lock_slot(dd, "b", anchor, dd["today"])
+        assert slot[0] == want and slot[2] >= want, slot
+        lines = lock_report("B", 36, 30, [0.92], slot)
+        assert "→ WAIT (slot wait value" in lines[0] and "LOCK" in lock_report("B", 36, 30, [0.92])[0], lines
+    assert lock_slot(dd, "b", None, dd["today"] + datetime.timedelta(1)) is None  # not fed that day: no slot
+    # The plan feeds B into an empty Sleeper slot ("0") (regression: TypeError naming the slot's missing starter).
+    # Week's base starts A there, so lock judges the slot as week does; with A Out, B joins week's base instead,
+    # isn't fed, and lock falls back to Sleeper's lineup and its plan.
+    for tag, slot_name in (("", "UTIL for A"), ("Out", "UTIL for empty slot")):
+        dd = lock_fixture()
+        dd["rosters"][0]["starters"][-1], dd["pool"]["a"]["injury_status"] = "0", tag
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cmd_lock(dd, argparse.Namespace(player="B", score=40, locked=None, slot_of=None, game=None, remaining=None, play=None))
+        assert "(slot wait value" in out.getvalue() and slot_name in out.getvalue(), out.getvalue()
+    # --locked fixes only the locked slot; the rest is re-optimized (regression: any lock pinned Sleeper's lineup).
+    dd = lock_fixture()
+    dd["vals"]["b"], dd["locked"] = (10.0, 60.0), locked_pids(dd, "S0")
+    w = week_context(dd)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_week(dd, argparse.Namespace(locked="S0"))
+    assert "  start B (" in out.getvalue(), out.getvalue()  # regression: bench-to-start changes were never listed
+    assert w["base"][0] == "s0" and w["blocked"] == {0} and "b" in w["base"].values() and "a" not in w["base"].values(), w["base"]
+    # An adopted base keeps every starter in his Sleeper slot when legal and prints every changed slot, and lock
+    # judges a slot on that base (regression: fill_slots reshuffled eight starters, week listed only "start B",
+    # and lock judged S0's slot on Sleeper's lineup, where bench B feeds it Thursday: a higher line than week's).
+    dd = lock_fixture()
+    dd["pool"]["b"]["fantasy_positions"], dd["vals"]["b"] = ["PG"], (10.0, 60.0)
+    dd["rosters"][0]["players"] = ["b"] + dd["rosters"][0]["starters"]
+    d1 = dd["today"]
+    dd["sched"] = [g for g in dd["sched"] if (g["home"]["team"], g["date"]) != ("Ts0", (d1 + datetime.timedelta(2)).isoformat())]
+    w = week_context(dd)
+    assert w["base"] == {**dict(enumerate(dd["rosters"][0]["starters"])), a_slot: "b"}, w["base"]
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_week(dd, argparse.Namespace(locked=None))
+    moves = [x for x in out.getvalue().split("make all of them):\n")[1].split("Rotation plan")[0].splitlines()]
+    assert moves == [f"  start B ({w['exp']['b']:.1f}) at UTIL (for A)"], out.getvalue()
+    want = slot_rest(w, 0, d1)[0]
+    assert f"S0 (PG) ≥ {want:.1f}" in out.getvalue() and lock_slot(dd, "s0", "s0", d1)[0] == want, out.getvalue()
+    assert want < slot_rest(week_context(dd, sleeper_base=True), 0, d1)[0] - 0.5  # the bases really differ for this slot
+    # The last day says its gains assume earlier unlocked scores are below their lock lines (regression: a bench
+    # swap for a starter whose Saturday score stood read as a pure gain).
+    assert "NOTE: last day" not in out.getvalue(), out.getvalue()
+    dd["today"] = datetime.date(2026, 10, 25)
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_week(dd, argparse.Namespace(locked=None))
+    assert "NOTE: last day: the gains above assume every earlier unlocked score is below its lock line" in out.getvalue(), out.getvalue()
+    # An Out starter's slot takes feeds on his game days (regression: his scheduled game blocked them), and so does
+    # an active-roster IR/Sus/DNR one (regression: valued as healthy at 0.92).
+    for tag in ("Out", "IR", "Sus", "DNR"):
+        dd = lock_fixture()
+        dd["pool"]["a"]["injury_status"] = tag
+        w, d3 = week_context(dd, sleeper_base=True), dd["today"] + datetime.timedelta(2)
+        assert w["fpg"]["a"] == 0 and w["plan"][d3] == {a_slot: "b"}, (tag, w["plan"])
+        assert slot_rest(w, a_slot, dd["today"])[1] == [(d3, "b")] and play_note(tag, {}, d3) == f"play 0 all week ({tag})"
+    # DTD lowers his next game's play chance, later games partly recover; untagged and past games unchanged
+    # (regression: Sleeper's most common tag was ignored, so a questionable starter counted as a 92% play).
+    dt = lock_fixture()
+    tue, wed, thu = dt["today"], dt["today"] + datetime.timedelta(1), dt["today"] + datetime.timedelta(2)
+    assert play_map({tue, wed, thu}) == {tue: 1 - Q_DNP, wed: 1 - Q_B2B, thu: 1 - Q_B2B}
+    assert play_map({tue, wed, thu}, "DTD", wed) == {tue: 1 - Q_DNP, wed: P_DTD[0], thu: P_DTD[1]}
+    # Sleeper's GTD gets the DTD discount everywhere (regression: only "DTD" was checked, so GTD counted as 0.92).
+    assert play_map({tue, wed, thu}, "GTD", wed) == play_map({tue, wed, thu}, "DTD", wed)
+    assert dtd_free({"pool": {"a": {"injury_status": "GTD"}}})["pool"]["a"]["injury_status"] == ""
+    base_exp, base_team = week_context(dt)["exp"]["a"], team_score(dt, MY_ROSTER, {}, False)[0]
+    dt["pool"]["a"]["injury_status"] = "DTD"
+    w = week_context(dt)
+    assert w["games"]["a"] == {wed: P_DTD[0], thu: P_DTD[1]} and w["exp"]["a"] < base_exp - 5, w["exp"]
+    assert team_score(dt, MY_ROSTER, {}, False)[0] < base_team, "team score ignores DTD"
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_week(dt, argparse.Namespace(locked=None))
+    assert "Play chance used for tagged players: A [DTD] play Wed 0.50 Thu 0.75" in out.getvalue(), out.getvalue()
+    assert play_note("Out", {}, tue) == "play 0 all week (Out)" and play_note("", {wed: 0.5}, tue) == ""
+    # Official injury report (words laid out as the Oct 20 2026 PDF): columns from the header, a game date carries
+    # down and across pages, wrapped reasons and NOT YET SUBMITTED rows add nothing, "Last Jr., First" reorders.
+    hdr = [(480, x, w) for x, w in ((23, "Game"), (53, "Date"), (200, "Matchup"), (425, "Player"), (457, "Name"),
+                                    (586, "Current"), (624, "Status"), (666, "Reason"))]
+    p1 = hdr + [(533, 288, "Injury"), (459, 24, "10/20/2026"), (459, 201, "BOS@DET"), (459, 426, "Carter,"), (459, 456, "Devin"),
+                (459, 587, "Out"), (459, 667, "Illness"), (436, 426, "Jackson"), (436, 460, "Jr.,"), (436, 480, "Jaren"),
+                (436, 587, "Questionable"), (429, 667, "Tear")]
+    p2 = [(505, 426, "Fall,Tacko"), (505, 587, "Doubtful"), (482, 24, "10/21/2026"), (482, 265, "Atlanta"),
+          (482, 667, "NOT"), (459, 426, "Young,"), (459, 460, "Trae"), (459, 587, "Probable")]
+    assert report_rows([p1, p2]) == [("2026-10-20", "Devin Carter", "Out"), ("2026-10-20", "Jaren Jackson Jr.", "Questionable"),
+                                     ("2026-10-20", "Tacko Fall", "Doubtful"), ("2026-10-21", "Trae Young", "Probable")]
+    # A listed game takes the report's chance over DTD (capped at a regular's); unlisted games keep the tag, and the
+    # printed chances cite the report or say they come from the Sleeper tag.
+    try:
+        REPORT.update(at="10/20 10:45 ET", pids={"a": {wed: "Probable", thu: "Available"}, "x": {wed: "Out"}, "y": {thu: "Available"}})
+        assert play_map({tue, wed, thu}, "DTD", wed, "a") == {tue: 1 - Q_DNP, wed: 0.75, thu: 1 - Q_B2B}
+        assert play_note("", play_map({wed}, "", wed, "x"), wed, "x") == "play Wed 0.00 Out (NBA report 10/20 10:45 ET)"
+        assert play_note("DTD", play_map({thu}, "DTD", wed, "b"), wed, "b") == "play Thu 0.50 (Sleeper tag; not on NBA report 10/20 10:45 ET)"
+        assert play_note("", play_map({thu}, "", wed, "y"), wed, "y") == ""  # listed Available only: no note
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cmd_week(dt, argparse.Namespace(locked=None))
+        assert "A [DTD] play Wed 0.75 Probable Thu 0.88 Available (NBA report 10/20 10:45 ET)" in out.getvalue(), out.getvalue()
+    finally:
+        REPORT.update(at="", pids={})
+    # A finished Wednesday game must not consume the next-game DTD discount.
+    dt["today"] = wed
+    args = argparse.Namespace(locked=None, player="A", score=25.0, slot_of=None,
+                              game=wed, remaining=None, play=None)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_lock(dt, args)
+    # His own DTD-adjusted wait is still 20, but healthy B's Thursday roll is now a legal alternative.
+    assert "A: 25.0 FP → WAIT (slot wait value 27.7:" in out.getvalue(), out.getvalue()
+    assert "his own games only:" in out.getvalue() and "wait value 20.0" in out.getvalue(), out.getvalue()
+    assert "Plays used: 0.50" in out.getvalue(), out.getvalue()
+    # --remaining keeps his status-aware play chances (regression: it used a flat 0.92 while printing the DTD rates).
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_lock(dt, argparse.Namespace(**dict(vars(args), remaining=1)))
+    assert "Plays used: 0.50 (0.92, 0.88 on a back-to-back's second night; DTD: 0.50 next game" in out.getvalue(), out.getvalue()
+    dt["pool"]["a"]["injury_status"] = "GTD"
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_lock(dt, argparse.Namespace(**dict(vars(args), score=30.0)))
+    assert "Plays used: 0.50 (0.92, 0.88 on a back-to-back's second night; GTD: 0.50 next game" in out.getvalue(), out.getvalue()
+    assert "LOCK depends on DTD play chance" in out.getvalue(), out.getvalue()  # dtd_free and the healthy rerun see GTD too
+    dt["pool"]["a"]["injury_status"] = "DTD"
+    out = io.StringIO()
+    original_fetch = globals()["fetch"]
+    globals()["fetch"] = lambda url: [{"player_id": "a", "date": wed.isoformat(), "stats": {"sp": 1, "pts": 25}}]
+    dt["league"] = {"season": "2026"}
+    try:
+        with contextlib.redirect_stdout(out):
+            pending_locks(dt, dt["rosters"][0], week_games(dt["sched"], 1))
+    finally:
+        globals()["fetch"] = original_fetch
+    assert "A: 25.0 FP → WAIT (slot wait value 27.7:" in out.getvalue(), out.getvalue()
+    # A LOCK that only the DTD discount produces says so (regression: P_DTD's 0.50 midpoint silently decided it).
+    # 30 beats the slot's DTD-discounted 27.7 (B's Thursday) but not A's undiscounted Thursday back-to-back (~35).
+    flip = f"LOCK depends on DTD play chance {P_DTD[0]:.2f}: confirm news; rerun with --play 0.9 if probable"
+    for score, want in ((30.0, True), (40.0, False), (25.0, False)):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cmd_lock(dt, argparse.Namespace(**dict(vars(args), score=score)))
+        globals()["fetch"] = lambda url: [{"player_id": "a", "date": wed.isoformat(), "stats": {"sp": 1, "pts": score}}]
+        try:
+            with contextlib.redirect_stdout(out):
+                pending_locks(dt, dt["rosters"][0], week_games(dt["sched"], 1))
+        finally:
+            globals()["fetch"] = original_fetch
+        assert out.getvalue().count(flip) == (2 if want else 0), (score, out.getvalue())
+    # --locked names match one Owner player each (regression: "James" locked LeBron James and James Harden).
+    dd["pool"].update(s1={"full_name": "LeBron James"}, s2={"full_name": "James Harden"}, s3={"full_name": "Kevin Love"},
+                      s4={"full_name": "Kevin Lovelace"})
+    assert locked_pids(dd, "james harden, kevin love,s0") == ["s2", "s3", "s0"]
+    for bad in ("James", "Nobody", "S0,Kev"):
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                locked_pids(dd, bad)
+        except SystemExit as e:
+            assert "matches" in str(e.code), e.code
+        else:
+            raise AssertionError(f"--locked {bad!r} was accepted")
+    # --date picks the week from the schedule (regression: --date 2026-10-27 stayed in week 1 with 0 days left).
+    sched2 = [{"week": w, "date": day} for w, day in ((1, "2026-10-20"), (1, "2026-10-25"), (2, "2026-10-27"))]
+    assert [week_of(sched2, datetime.date(2026, 10, n)) for n in (19, 25, 26, 27)] == [1, 1, 2, 2]
+    assert week_of(sched2, datetime.date(2026, 12, 1)) is None
+    # The footer names the board's basis (regression: it said "frozen" after rebuild_board --blend --write).
+    blended = ("# Use Sleeper positions and roster needs WITHIN tiers; no fixed center premium.\n# In-season blend: FP/g -> "
+               "prior + n/(n+6.5)*(actual - prior) after n games (210 players, games through 2026-10-27); board-actuals.csv.\n")
+    assert board_basis(blended, sched2) == "blended through week 2" and board_basis(blended, None) == "blended through Oct 27"
+    assert board_basis(blended.split("\n")[0], sched2) == "frozen Oct 19"
+    # ... and when the player tags were fetched (regression: "the daily players-*.json" hid a 9-hour-old file).
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".json") as tags:
+        os.utime(tags.name, (0, datetime.datetime(2026, 10, 20, 10, 1).timestamp()))
+        saved, draft.PLAYERS_PATH = draft.PLAYERS_PATH, tags.name
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                footer({"today": d0})
+        finally:
+            draft.PLAYERS_PATH = saved
+    assert f"player tags from {os.path.basename(tags.name)} fetched 10/20 10:01 (refetched when 3 h old" in out.getvalue(), out.getvalue()
+    # The score's game, not today, starts the count (regression: Friday's score judged on Saturday had 0 left).
+    tue, fri, sat, sun = (datetime.date(2026, 10, 20) + datetime.timedelta(i) for i in (0, 3, 4, 5))
+    fox = {tue, fri, sat}
+    assert lock_game(fox, sat, fri) == (fri, [sat], None)
+    assert lock_game(fox, sun) == (sat, [], None) and lock_game(fox, fri) == (fri, [sat], None)
+    assert lock_game(fox, sat, sun)[2] and lock_game({sat}, fri)[2]
+
+    # Win odds (regression: matchup had no P(win)): stop_moments' mean is stop_value; team_score is week's
+    # with-rotation total; a reported score at or above the wait value is taken as locked.
+    days3 = [[(40, 0.92)], [(35, 0.88)], [(40, 0.92)]]
+    m, m2 = stop_moments(days3)
+    assert abs(m - stop_value(days3)) < 1e-9 and m2 > m * m
+    xs = draws(40)
+    assert abs(stop_moments([[(40, 0.9)]])[1] - 0.9 * sum(x * x for x in xs) / len(xs)) < 1e-9
+    dd = lock_fixture()
+    w = week_context(dd)
+    rot = sum(stop_value(slot_days(w["left"], s, {day: w["plan"][day][i] for day in w["left"] if i in w["plan"][day]},
+                                   w["games"], w["fpg"])) for i, s in w["base"].items())
+    mean, var = team_score(dd, MY_ROSTER, {}, False)
+    assert abs(mean - rot) < 1e-9 and var > 0, (mean, rot)
+    mean2, var2 = team_score(dd, MY_ROSTER, {"s0": 500.0}, True)
+    assert mean2 > mean + 400 and var2 < var, (mean2, var2)
+    assert win_odds({4: (100, 0), 1: (90, 0), 2: (80, 0)}, 4, 1) == (1.0, 1.0)
+    assert win_odds({4: (80, 0), 1: (90, 0), 2: (100, 0)}, 4, None, median=False) == (None, None)
+    h, md = win_odds({r: (100, 400) for r in range(1, 11)}, 4, 1)
+    assert abs(h - 0.5) < 0.05 and abs(md - 0.5) < 0.05, (h, md)
+    h, md = win_odds({**{r: (100, 400) for r in range(1, 11)}, 4: (130, 400)}, 4, 1)
+    assert 0.8 < h < 0.9 and md > 0.9, (h, md)  # +30 at sd 20 each: Φ(30/28.3) = 0.86
+    # matchup's header number is labelled as the no-rotation best 9 (regression: it read as the table's total).
+    from unittest.mock import patch
+    dd = dict(lock_fixture(), league={"league_id": "L", "season": "2026", "settings": {"playoff_week_start": 21}})
+    with patch("draft.get", return_value=[{"roster_id": MY_ROSTER, "matchup_id": None, "points": 0}]), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_matchup(dd, argparse.Namespace())
+    assert "expected locked with games left " in out.getvalue() and "(best 9, no rotation)" in out.getvalue(), out.getvalue()
+
+    # Lineup and rotation: exact best lineup, bench feeds only idle-starter days, one slot per player per day.
+    pos = {"pg": ["PG"], "pg2": ["PG"], "sg": ["SG"], "c": ["C"], "c2": ["C"], "f": ["SF", "PF"]}
+    val = {"pg": 50, "pg2": 10, "sg": 30, "c": 60, "c2": 20, "f": 5}
+    lineup = best_lineup(list(pos.items()), val, ["PG", "SG", "C", "UTIL"])
+    assert sorted(lineup.values()) == ["c", "c2", "pg", "sg"], lineup
+    d1, d2 = datetime.date(2026, 10, 20), datetime.date(2026, 10, 21)
+    base = {0: "pg", 1: "sg", 2: "c"}
+    games = {p: play_map(ds) for p, ds in {"pg": {d2}, "sg": {d1, d2}, "c": {d2}, "pg2": {d1}, "c2": {d1}, "f": {d1}}.items()}
+    o = {"pg": 50, "sg": 30, "c": 60, "pg2": 30, "c2": 20, "f": 5}
+    plan = rotation(["PG", "SG", "C", "UTIL"], base, ["c2", "pg2", "f"], games, [d1, d2], pos, o)
+    # pg2's roll is worth most in the empty UTIL. c2 (20/g) can't beat c's wait value, but it still sits at idle C, since a
+    # bench score can close a cheaper slot (issue #26); f (SF/PF) fits no idle slot.
+    assert plan[d1] == {3: "pg2", 2: "c2"}, plan
+    assert plan[d2] == {}, plan  # every bench player is idle on d2
+    assert rotation(["PG", "SG", "C", "UTIL"], base, ["c2", "pg2", "f"], games, [d1, d2], pos, o, blocked={3})[d1] == {0: "pg2", 2: "c2"}
+    # A bench player ruled out (play 0) is never seated.
+    out_c2 = dict(games, c2={d1: 0.0})
+    assert rotation(["PG", "SG", "C", "UTIL"], base, ["c2", "pg2", "f"], out_c2, [d1, d2], pos, o)[d1] == {3: "pg2"}
+    # The weakest idle starter's slot gets the extra roll (the Edgecombe-into-Allen's-UTIL case).
+    two = rotation(["PG", "UTIL"], {0: "pg", 1: "c"}, ["pg2"], games, [d1, d2], pos, {"pg": 50, "c": 35, "pg2": 30})
+    assert two[d1] == {1: "pg2"}, two
+    feeds = {d1: "pg2"}
+    assert stop_value(slot_days([d1, d2], "pg", feeds, games, o)) > stop_value(slot_days([d1, d2], "pg", {}, games, o))
+
+    # FA diff: rostered, excluded, unprojected and teamless players are skipped; drop is our lowest V.
+    pool = {str(i): {"full_name": f"P{i}", "active": True, "team": "BOS", "fantasy_positions": ["C" if i % 2 else "PG"]}
+            for i in range(1, 7)}
+    pool["5"]["team"] = None
+    board = ["1", "2", "3", "4", "5", "6"]
+    notes = {"1": "T1 | V+20.0/wk | 45.0/g | ECR 9 | 61 GP | season 2745 FP", "2": "T2 | V+9.0/wk | 35.0/g", "3": "DO NOT DRAFT | Waived",
+             "4": "NO PROJECTION | ECR ?", "5": "T3 | V+5.0/wk | 30.0/g", "6": "T3 | V+4.0/wk | 31.0/g"}
+    vals = board_values(notes)
+    assert set(vals) == {"1", "2", "5", "6"} and vals["1"] == (20.0, 45.0)
+    assert board_values({"j": "T1 | V+40.2/wk | 73.9/g | ECR 1 | 10 G 40.0/g -> 53.4/g | 70 GP"})["j"] == (40.2, 53.4)
+    # The calibrated FP/g behind V beats the raw projection (regression: lock math used Banchero's raw 47.6, not 49.1).
+    paolo = "T7 | V+22.6/wk | 47.6/g | cal 49.1/g | ECR 12 | 74 GP"
+    assert board_values({"p": paolo})["p"] == (22.6, 49.1)
+    assert board_values({"p": paolo.replace("ECR 12", "ECR 12 | 4 G 40.0/g -> 45.0/g")})["p"] == (22.6, 45.0)
+    fas = free_agents(board, vals, notes, pool, {"1": 4}, None)
+    assert fas == [(2, "2"), (6, "6")], fas
+    assert free_agents(board, vals, notes, pool, {"1": 4}, {"PG"}) == [(2, "2"), (6, "6")]
+    assert free_agents(board, vals, notes, pool, {"1": 4}, {"C"}) == []
+    # Unprojected players are never the drop (regression: no board V counted as 0, so a hot pickup was "worst").
+    assert drop_candidate(["1", "4", "6"], vals, pool) == "6" and drop_candidate(["4"], vals, pool) is None
+
+    # fa beyond the board (regression: breakouts and new signings off board.txt were invisible).
+    pool["7"], pool["8"] = {"full_name": "Hot Rookie", "team": "SAC", "fantasy_positions": ["SG"]}, {"full_name": "Cold"}
+    pool["10"] = {"full_name": "Role Jump", "team": "UTA", "fantasy_positions": ["PF"]}
+    dfa = {"pool": pool, "rosters": [{"roster_id": 4, "players": ["1"]}], "board": board, "vals": vals, "sched": [1]}
+    jump = [("d", "g", 10.0, 18)] * 3 + [("e", "g", 25.0, 34)] * 3  # season 26.0 min/g, last 3 34.0: +8.0
+    logs = {"7": [("d", "g", 30.0, 30)] * 3, "8": [("d", "g", 26.0, 30)] * 3, "1": jump,
+            "2": [("d", "g", 60.0, 30)] * 3, "9": [("d", "g", 90.0, 30)] * 2, "10": jump,
+            "6": jump[:-1] + [("e", "g", 25.0, 33.9)]}  # rostered "1" and a 7.97-minute jump stay off the radar
+    lines = beyond_board(dfa, [("1", 99), ("7", 50), ("2", 40), ("4", 30)], logs, 26.9, lambda p: 3)
+    assert lines[0] == "Trending adds (Sleeper, 24h): 3 of 4 are free agents here:" and "P1" not in "".join(lines), lines
+    assert "not on board | 50 adds" in lines[1] and "V+9.0/wk 35.0/g | 40 adds" in lines[2] and "on board, no V" in lines[3], lines
+    assert lines[4].endswith(": 1") and "Hot Rookie" in lines[5] and "30.0 FP/g in 3 G" in lines[5], lines
+    assert "Minutes radar" in lines[6] and ": 1 (" in lines[6] and "Role Jump" in lines[7], lines
+    assert "min 34.0 vs 26.0 | 0.67 FP/min → 22.9/g at L3 min" in lines[7], lines
+    assert len(lines) == 8 and beyond_board(dfa, None, None, 26.9, lambda p: 3) == []
+
+    # Stream: team gain via rotation, best bench drop (not the lowest V), the V+5 guard, and after-add dates
+    # (regression: ΔE wk compared standalone scores, so a streamer feeding an idle slot looked worthless).
+    # UTIL (A) idle Tue/Wed: bench B feeds Tue, C feeds Wed. FA F plays Tue only.
+    dd = lock_fixture()
+    tue, wed = dd["today"], dd["today"] + datetime.timedelta(1)
+    dd["sched"] = [g for g in dd["sched"] if not (g["home"]["team"] == "Ta" and g["date"] == wed.isoformat())]
+    dd["sched"] += [{"week": 1, "date": day.isoformat(), "home": {"team": "T" + p}, "away": {"team": "Z" + p}} for p, day in (("c", wed), ("f", tue))]
+    dd["pool"].update({p: {"full_name": p.upper(), "team": "T" + p, "fantasy_positions": ["C"]} for p in "cf"})
+    dd["vals"].update(b=(10.0, 30.0), c=(5.0, 30.0), f=(10.0, 35.0))
+    dd["rosters"][0]["players"].append("c")
+    (gain, fa, drop), = stream_gains(dd, ["f"], ["b", "c"], {"f": tue})
+    assert fa == "f" and drop == "b" and gain > 0 and drop_candidate(["b", "c"], dd["vals"], dd["pool"]) == "c", (gain, drop)
+    dd["vals"]["b"] = (15.0, 30.0)  # V/wk ≥ his 10 + 5: never dropped to stream
+    assert stream_gains(dd, ["f"], ["b", "c"], {"f": tue})[0][2] == "c"
+    assert stream_gains(dd, ["f"], ["b", "c"], {"f": wed})[0][0] < 0  # his Tue game no longer counts
+
+    # A locked UTIL cannot take another roll, and its player cannot be the drop.
+    dl = lock_fixture()
+    dl["locked"] = ["a"]
+    dl["vals"].update({f"s{i}": (30.0, 100.0) for i in range(len(SLOTS) - 1)})
+    dl["pool"]["f"] = {"full_name": "F", "team": "Tf", "fantasy_positions": ["C"]}
+    dl["vals"]["f"] = (11.0, 60.0)
+    dl["sched"].append({"week": 1, "date": tue.isoformat(), "home": {"team": "Tf"}, "away": {"team": "Zf"}})
+    assert stream_gains(dl, ["f"], ["b"], {"f": tue}) == [(0.0, "f", "b")]
+    assert stream_gains(dl, ["f"], ["a"], {"f": tue}) == []
+
+    # IR slot holding a player who is no longer IR/Sus/DNR (regression: no warning).
+    assert any("on IR but status Out" in x for x in slot_warnings("IR", "P", "Out", 1))
+    assert any("status healthy" in x for x in slot_warnings("IR", "P", "", 1)) and slot_warnings("IR", "P", "Sus", 1) == []
+
+    # Changes diff: transactions, roster moves and status changes, Owner first; seen transactions skipped.
+    old = {"taken": "t0", "week": 1, "txns": ["x0"], "rosters": {"4": ["1", "2"], "3": ["6"]},
+           "status": {"1": "", "2": "", "6": ""}}
+    pool2 = {k: dict(v) for k, v in pool.items()}
+    pool2["6"]["injury_status"] = "Out"
+    new = snapshot([{"roster_id": 4, "players": ["1", "5"]}, {"roster_id": 3, "players": ["6", "2"]}], pool2, ["x0", "x1"], 1)
+    txns = [{"transaction_id": "x0", "type": "free_agent", "adds": {"9": 3}},
+            {"transaction_id": "x1", "type": "trade", "status": "complete", "adds": {"2": 3, "5": 4}, "drops": {"2": 4, "5": 3}}]
+    lines = diff(old, new, txns, lambda rid: f"T{rid}", lambda p: f"P{p}")
+    assert lines[0].startswith("TXN trade") and "T4 +P5 -P2" in lines[0] and "T3 +P2 -P5" in lines[0], lines
+    assert "ROSTER T4: +P5 -P2" in lines and "ROSTER T3: +P2 -—" in lines, lines
+    assert "STATUS P6 (T3): healthy → Out" in lines and not any("P9" in x for x in lines), lines
+    assert lines.index("ROSTER T4: +P5 -P2") < lines.index("ROSTER T3: +P2 -—")
+
+    # Standings: H2H and median games from matchups.
+    wk = [{"roster_id": 1, "matchup_id": 1, "points": 100}, {"roster_id": 2, "matchup_id": 1, "points": 90},
+          {"roster_id": 3, "matchup_id": 2, "points": 80}, {"roster_id": 4, "matchup_id": 2, "points": 120}]
+    rec = records([wk])
+    assert rec[4][:6] == [1, 0, 0, 1, 0, 0] and rec[1][:6] == [1, 0, 0, 1, 0, 0] and rec[3][:6] == [0, 1, 0, 0, 1, 0], rec
+    # No opponent for matchup_id None, and playoff weeks don't count (regression: None paired unrelated teams).
+    rec = records([[dict(m, matchup_id=None) if m["roster_id"] in (3, 4) else m for m in wk]])
+    assert rec[4][:3] == [0, 0, 0] and rec[3][:3] == [0, 0, 0] and rec[1][:3] == [1, 0, 0], rec
+    assert regular_weeks(23, 21) == range(1, 21) and regular_weeks(5, 21) == range(1, 5)
+    assert game_fp({"pts": 20, "reb": 10, "ast": 5, "stl": 1, "blk": 1, "to": 3, "fgm": 8, "fga": 15,
+                    "ftm": 2, "fta": 3, "tpm": 2}) == 48  # prep-notes' literal box-score check
+    print("ok: validation refusal, lock math, win odds, lineup/rotation, FA diff and beyond-board, changes diff, "
+          "standings, box-score scoring")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--date", type=datetime.date.fromisoformat, help="pretend today is this date (dry runs)")
+    ap.add_argument("--refresh", action="store_true", help="force a fresh /players/nba download")
+    ap.add_argument("--test", action="store_true")
+    sub = ap.add_subparsers(dest="cmd")
+    sub.add_parser("roster").add_argument("team", nargs="?")
+    p = sub.add_parser("week")
+    p.add_argument("--week", type=int)
+    p.add_argument("--locked", help="comma-separated players already locked this week")
+    sub.add_parser("matchup").add_argument("--week", type=int)
+    p = sub.add_parser("lock")
+    p.add_argument("--week", type=int)
+    p.add_argument("player", nargs="?")
+    p.add_argument("score", nargs="?", type=float)
+    p.add_argument("--remaining", type=int)
+    p.add_argument("--play", type=float, help="chance he plays each remaining game (default 0.92, 0.88 on a back-to-back's second night)")
+    p.add_argument("--game", type=datetime.date.fromisoformat,
+                   help="date of the game the score is from (default: his latest game on or before today)")
+    p.add_argument("--slot-of", help="the starter whose slot he was rotated into (when Sleeper doesn't show the move yet)")
+    p.add_argument("--locked", help="comma-separated players already locked this week (as for week)")
+    p.add_argument("--commit", action="store_true", help="record that you locked this player at this score in Sleeper")
+    p.add_argument("--uncommit", action="store_true", help="remove a mistaken lock record")
+    p = sub.add_parser("fa")
+    p.add_argument("--pos")
+    p.add_argument("--top", type=int, default=15)
+    p.add_argument("--locked", help="comma-separated players already locked this week (as for week)")
+    sub.add_parser("standings")
+    sub.add_parser("review").add_argument("--week", type=int)
+    sub.add_parser("changes").add_argument("--no-write", action="store_true")
+    a = ap.parse_args()
+    if a.test:
+        return test()
+    if not a.cmd:
+        ap.error("choose a command")
+    if a.cmd == "lock" and a.commit and a.uncommit:
+        ap.error("use --commit or --uncommit, not both")
+    if a.cmd == "lock" and not a.uncommit and (a.player is None) != (a.score is None):
+        ap.error("lock needs both <player> and <score>, or neither for pending calls")
+    d = load(a)
+    globals()["cmd_" + a.cmd](d, a)
+
+
+if __name__ == "__main__":
+    main()
