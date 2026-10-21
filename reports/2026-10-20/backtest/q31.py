@@ -1,4 +1,4 @@
-"""Issue #31: are fantasy-relevant players on bad teams out more in our playoff weeks (Mar 8-28)?
+"""Issue #6 (private #31): are fantasy-relevant players on bad teams out more in our playoff weeks (Mar 8-28)?
 
 Players at 35+ FP/g with 25+ games in Nov 1 - Feb 14 (same season). Standings frozen at Feb 15 from Sleeper's
 schedule results (no hindsight). Unit: a player-week whose team has 1+ game; "out" = he played none of them,

@@ -25,7 +25,7 @@ ACCEPT_COST = 1.0  # counterparty "plausibly accepts" if it loses under this V/w
 IR_OK = gm.IR_OK  # reserve_allow_out is 0: Out holds a bench spot
 # Fantasy playoffs are weeks 21-23; we project a top-2 seed, so our games are the week 22-23 schedules.
 PO_WEEKS, PO_SCORED, PO_FPG = (21, 22, 23), (22, 23), 40.0
-# Late-season availability (issue #31, reports/2026-10-21/late-season.md): 35+ FP/g players' share of playoff-window
+# Late-season availability (issue #6, reports/2026-10-21/late-season.md): 35+ FP/g players' share of playoff-window
 # weeks with a game played, over their Nov-Feb share, by standings at the Feb 15 deadline; 2024-25 and 2025-26
 # pooled. Whole weeks only: a missed week loses V, a missed game mostly a roll. The May 2026 lottery reform may
 # shrink it, so treat it as an upper bound. Before PO_SPLIT_GAMES each, standings are noise: everyone gets the mean.
@@ -537,7 +537,7 @@ def test_sim():
     # One player out 5% of weeks keeps 95% of his week (first-order absences are exact for one player).
     one = sim_value(lg, ["s0"], (2,))
     assert one > 0 and abs(one - 0.95 * sim_value(dict(lg, players=dict(P, s0=dict(P["s0"], out=0.0)), sim={}), ["s0"], (2,))) < 1e-9
-    # The same week as playoff week 22: late-season availability 0.7 scales what he keeps (#31); regular weeks ignore it.
+    # The same week as playoff week 22: late-season availability 0.7 scales what he keeps (#6); regular weeks ignore it.
     po_lg = dict(lg, sched=[dict(g, week=22) for g in sched], avail={"A": 0.7}, sim={})
     assert abs(sim_value(po_lg, ["s0"], (22,)) - 0.7 * one) < 1e-9
     assert abs(sim_value(dict(lg, avail={"A": 0.7}, sim={}), ["s0"], (2,)) - one) < 1e-9
@@ -707,7 +707,7 @@ def test():
     assert f"Alpha One (PG, V+10.0, sleeper#?, A4 PO 0/4/4 x{m['A4']:.2f})" in out, out
     assert f"Playoff-weighted for us: {want:+.1f}/wk vs -1.8 regular season (changed starters' V x their week 22-23" in out, out
     assert "Alpha Three (PG, V+4.0, sleeper#?)" in label(lg, "a3")  # no team: no PO tag, multiplier 1
-    # Late-season availability (#31) scales each team's schedule multiplier: A4 bottom-10, A2 not.
+    # Late-season availability (#6) scales each team's schedule multiplier: A4 bottom-10, A2 not.
     lg["avail"] = {"A4": PO_AVAIL["bottom"], "A2": PO_AVAIL["rest"]}
     want = -1.8 + (m["A2"] * PO_AVAIL["rest"] - 1) * 9 - (m["A4"] * PO_AVAIL["bottom"] - 1) * 10
     assert abs(po_delta(lg, r) - want) < 1e-9 and want > -1.8, (po_delta(lg, r), want)  # selling a bottom-10 starter gains

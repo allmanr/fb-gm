@@ -1493,7 +1493,7 @@ def cmd_review(d, a):
     print(f"  Totals: counted {totals[0]:.1f} | policy {totals[1]:.1f} | hindsight {totals[2]:.1f} (an upper bound, not a target){gap}")
     if agree:
         print(f"Sleeper's reported points equal the lock record in {sum(agree)} of {len(agree)} locked slot(s)"
-              + ("" if all(agree) else ": Sleeper shows the latest game, not the lock (issue #7)") + ".")
+              + ("" if all(agree) else ": Sleeper shows the latest game, not the lock (issue allmanr/fb-gm#3)") + ".")
     print(f"Outcome line: week {d['week']} execution: counted {totals[0]:.1f}, policy {totals[1]:.1f}, hindsight {totals[2]:.1f}; "
           f"policy − counted {totals[1] - totals[0]:+.1f}{gap}; "
           + (f"largest leak {worst[0]} {worst[1]:+.1f} ({worst[2]})." if worst and worst[1] > 0.05 else "no slot below policy."))
@@ -2352,10 +2352,10 @@ def test_review():
     assert "policy unknown in 1 slot(s)" in text and "counted 260.0 | policy 275.0 | hindsight 305.0" in text, text
     assert row["UTIL2"][:2] == (45.0, "final game") and "1 feed(s) planned, adherence unknown" in row["UTIL2"][5], row["UTIL2"]
     assert "Outcome line: week 1 execution" in text and "largest leak SG" in text, text
-    # Sleeper's slot points: shows the latest game for a locked slot -> flagged for issue #7.
+    # Sleeper's slot points: shows the latest game for a locked slot -> flagged for issue #3.
     ms = [{"roster_id": MY_ROSTER, "starters": d["rosters"][0]["starters"], "starters_points": [30.0, 35.0] + [0.0] * 7}]
     text = run([rows], [ms])
-    assert "equal the lock record in 1 of 3" in text and "issue #7" in text, text
+    assert "equal the lock record in 1 of 3" in text and "issue allmanr/fb-gm#3" in text, text
     text = run(OSError("offline"), [ms])
     assert "counted, policy and hindsight unknown" in text and "Totals" not in text, text
     tmp.cleanup()

@@ -1,4 +1,4 @@
-# Late-season shutdowns in the playoff weeks (issue #31)
+# Late-season shutdowns in the playoff weeks (issue #6, private #31)
 
 **Verdict: built.** In fantasy-playoff weeks, fantasy-relevant players on the 10 worst NBA teams keep only **0.71** of their usual available weeks (95% CI 0.57–0.84). Players on other teams keep **0.92** (0.86–0.98). `trade.py`'s playoff weighting now applies this factor. Before, it modeled only schedules, whose spread across teams is about ±3%.
 
@@ -44,4 +44,4 @@ Both seasons agree. On a 20 V/wk starter, the gap between the groups is about 4 
 - **Upper bound:** the NBA's May 28, 2026 lottery reform (the "3-2-1" format and fines up to $10M) applies to the 2027 lottery. It may reduce shutdowns this season, so read 0.71 as a ceiling on the effect.
 - **Standings are a proxy:** the factor fits deadline standings, but live standings are still noisy in November. Playoff-race context (seeding locked, play-in) is not modeled.
 - **In-week DNPs:** the rise in single missed games (for example 13% → 23%) is not applied. It mostly costs a lock roll.
-- **Act before the deadline:** the factor matters only for trades made before the deadline, whose date is unconfirmed (#7: week 18 or about 4 weeks earlier).
+- **Act before the deadline:** the factor matters only for trades made before the deadline, whose date is unconfirmed (#3: week 18 or about 4 weeks earlier).
