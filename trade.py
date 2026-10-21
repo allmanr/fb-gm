@@ -76,7 +76,7 @@ def po_avail(sched, until=None):
             n_sched[t] = n_sched.get(t, 0) + 1
     teams = {t for t, n in n_sched.items() if n >= 10}
     st = {t: wn for t, wn in standings(sched, until).items() if t in teams}
-    if len(st) < len(teams) or min(n for _, n in st.values()) < PO_SPLIT_GAMES:
+    if not st or len(st) < len(teams) or min(n for _, n in st.values()) < PO_SPLIT_GAMES:
         k = PO_BOTTOM_N / max(len(teams), 1)
         return {t: k * PO_AVAIL["bottom"] + (1 - k) * PO_AVAIL["rest"] for t in teams}
     bottom = set(sorted(st, key=lambda t: st[t][0] / st[t][1])[:PO_BOTTOM_N])
@@ -725,6 +725,7 @@ def test():
             games.append({"status": "complete", "date": f"2026-11-{rnd + 1:02d}", "home": {"team": a, "points": 100 + names.index(a)},
                           "away": {"team": b, "points": 100 + names.index(b)}})
     games.append({"status": "complete", "date": "2026-11-30", "home": {"team": "SHQ", "points": 1}, "away": {"team": "CHK", "points": 2}})
+    assert po_avail([]) == {} and po_avail(games[:3]) == {}  # no NBA-length schedule: no factors, no crash
     av = po_avail(games)
     assert av["T00"] == PO_AVAIL["bottom"] and av["T11"] == av["T10"] == PO_AVAIL["rest"] and "SHQ" not in av, av
     assert sum(f == PO_AVAIL["bottom"] for f in av.values()) == PO_BOTTOM_N, av
