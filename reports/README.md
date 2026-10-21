@@ -4,7 +4,7 @@ These reports preserve the work that preceded the current weekly Lock-In board. 
 
 The draft is complete. Its outcome (the draft retrospective) and the league-specific research (scouting, cheat sheets, pick plans, the week-1 scout memo, the session retrospective) are private, under `private/reports/`; for in-season use, read [the README](../README.md). `prep-notes.md` holds the current project status.
 
-The [October 20 reports](2026-10-20/) are current references for the in-season tools: the [Lock-In backtest](2026-10-20/lockin-backtest.md) (reproducible scripts in `backtest/`), the [minutes-radar backtest](2026-10-20/minutes-radar.md), the [win-odds lock backtest](2026-10-20/winodds-locks.md) (closed #9), [playoff schedules](2026-10-20/playoff-schedule.md) and the [Sleeper rules check](2026-10-20/sleeper-rules.md). The [October 21 pooled-locks backtest](2026-10-21/pooled-locks.md) backs the "via" lock lines.
+The [October 20 reports](2026-10-20/) are current references for the in-season tools: the [Lock-In backtest](2026-10-20/lockin-backtest.md) (reproducible scripts in `backtest/`), the [minutes-radar backtest](2026-10-20/minutes-radar.md), the [win-odds lock backtest](2026-10-20/winodds-locks.md) (closed #9), [playoff schedules](2026-10-20/playoff-schedule.md) and the [Sleeper rules check](2026-10-20/sleeper-rules.md). The [October 21 pooled-locks backtest](2026-10-21/pooled-locks.md) backs the "via" lock lines. The [October 21 late-season availability fit](2026-10-21/late-season.md) backs `trade.py`'s playoff weighting (#31); the [context-means backtest](2026-10-21/context-means.md) closed #32.
 
 ## Read old reports with their original assumptions
 

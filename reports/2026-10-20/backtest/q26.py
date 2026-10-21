@@ -45,12 +45,12 @@ def plans(roster, w):
     return base, rolls(lane), rolls(seated), days, games, fpg, actual
 
 
-def replay(base, rolls, days, games, fpg, actual, pooled):
+def replay(base, rolls, days, games, fpg, actual, pooled, mean=None):
     """-> (locked + standing points, via locks). lanes: {lane: dict(slot, rolls, last)}; a via lock moves the
-    feed's lane into the closed lane's slot."""
+    feed's lane into the closed lane's slot. mean(p, day), when given, replaces fpg[p] in lock lines (q32)."""
     lanes = {i: dict(slot=i, rolls=list(rs), last=0.0) for i, rs in rolls.items()}
     total, vias, gone = 0.0, 0, set()
-    value = lambda rs: gm.stop_value([[(fpg[p], games[p][d])] for d, p in rs])
+    value = lambda rs: gm.stop_value([[(mean(p, d) if mean else fpg[p], games[p][d])] for d, p in rs])
     for day in days:
         posted = {}
         for i, ln in lanes.items():

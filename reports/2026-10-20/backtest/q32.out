@@ -1,0 +1,6 @@
+context fit on 2024-25 (9876 player-games at 25+ FP/g): a=1.323 per FP of opponent residual, b=0.227 per vacated FP x share; R2 0.017
+same fit on 2025-26 for reference (not used): a=1.486, b=0.230, R2 0.026
+2025-26 per-game shift at 25+ FP/g (out of sample): mean +0.08, mean |shift| 1.70 FP, 7.6% of games >= 4 FP; R2 vs centered residual 0.025
+Random leagues: 300 league-weeks x 10 teams
+  ctx vs pooled: -0.00 FP/wk [-0.65, +0.67]
+  ctx vs pooled: +0.04 wins/20 wk [-0.20, +0.29]
