@@ -84,7 +84,7 @@ Note: `./draft.py` reads the completed draft picks (`/draft/<draft_id>/picks`), 
 
 - [Project notes](prep-notes.md#league-rules): Lock-In rules and model documentation; [current status](prep-notes.md#status-start-of-season-oct-20) with what's open and where it's tracked.
 - [GM charter](CLAUDE.md): league rules, ground rules, tools, staff and notes rules for the agent.
-- [Lock-In backtest](reports/2026-10-20/lockin-backtest.md): lock thresholds, DNP correction and bench value tested on 2025-26 games. [Win-odds lock backtest](reports/2026-10-20/winodds-locks.md): +0.24 wins/season, below the build gate (#9). [Playoff schedules](reports/2026-10-20/playoff-schedule.md), [Sleeper rules check](reports/2026-10-20/sleeper-rules.md) and [pooled bench locks](reports/2026-10-21/pooled-locks.md).
+- [Lock-In backtest](reports/2026-10-20/lockin-backtest.md): lock thresholds, DNP correction and bench value tested on 2025-26 games. [Win-odds lock backtest](reports/2026-10-20/winodds-locks.md): +0.24 wins/season, below the build gate (#9). [Playoff schedules](reports/2026-10-20/playoff-schedule.md), [Sleeper rules check](reports/2026-10-20/sleeper-rules.md) [pooled bench locks](reports/2026-10-21/pooled-locks.md), [late-season availability](reports/2026-10-21/late-season.md) (playoff trade weighting) and [per-game context means](reports/2026-10-21/context-means.md) (closed #32).
 - [Open work](https://github.com/allmanr/fb-gm/issues): GitHub issues, each with impact and acceptance criteria. Issue and PR numbers #1–#30 in older notes refer to the private pre-split repository.
 - [Research archive](reports/README.md): the board's pre-draft provenance.
 

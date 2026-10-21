@@ -25,6 +25,11 @@ ACCEPT_COST = 1.0  # counterparty "plausibly accepts" if it loses under this V/w
 IR_OK = gm.IR_OK  # reserve_allow_out is 0: Out holds a bench spot
 # Fantasy playoffs are weeks 21-23; we project a top-2 seed, so our games are the week 22-23 schedules.
 PO_WEEKS, PO_SCORED, PO_FPG = (21, 22, 23), (22, 23), 40.0
+# Late-season availability (issue #31, reports/2026-10-21/late-season.md): 35+ FP/g players' share of playoff-window
+# weeks with a game played, over their Nov-Feb share, by standings at the Feb 15 deadline; 2024-25 and 2025-26
+# pooled. Whole weeks only: a missed week loses V, a missed game mostly a roll. The May 2026 lottery reform may
+# shrink it, so treat it as an upper bound. Before PO_SPLIT_GAMES each, standings are noise: everyone gets the mean.
+PO_AVAIL, PO_BOTTOM_N, PO_SPLIT_GAMES = {"bottom": 0.711, "rest": 0.921}, 10, 15
 
 
 def playoff_profile(sched, weeks=PO_WEEKS, fpg=PO_FPG):
@@ -48,10 +53,45 @@ def playoff_profile(sched, weeks=PO_WEEKS, fpg=PO_FPG):
     return out
 
 
-def po_mult(lg, pid):
-    """Mean PO_SCORED multiplier for the player's NBA team; 1.0 with no team or no schedule."""
+def standings(sched, until=None):
+    """NBA team -> (wins, games) over complete games on or before until (ISO date)."""
+    out = {}
+    for g in sched or []:
+        h, a = g["home"], g["away"]
+        if g.get("status") != "complete" or (until and g["date"] > until) or None in (h.get("points"), a.get("points")):
+            continue
+        for t, won in ((h["team"], h["points"] > a["points"]), (a["team"], a["points"] > h["points"])):
+            w, n = out.get(t, (0, 0))
+            out[t] = (w + won, n + 1)
+    return out
+
+
+def po_avail(sched, until=None):
+    """NBA team -> PO_AVAIL factor: the bottom PO_BOTTOM_N by win pct once every team has PO_SPLIT_GAMES, else
+    the league mean for all. A team with under 10 scheduled games is an All-Star exhibition side (codes vary by
+    season: STP/STR, SHQ/CHK) and is ignored."""
+    n_sched = {}
+    for g in sched or []:
+        for t in (g["home"]["team"], g["away"]["team"]):
+            n_sched[t] = n_sched.get(t, 0) + 1
+    teams = {t for t, n in n_sched.items() if n >= 10}
+    st = {t: wn for t, wn in standings(sched, until).items() if t in teams}
+    if len(st) < len(teams) or min(n for _, n in st.values()) < PO_SPLIT_GAMES:
+        k = PO_BOTTOM_N / max(len(teams), 1)
+        return {t: k * PO_AVAIL["bottom"] + (1 - k) * PO_AVAIL["rest"] for t in teams}
+    bottom = set(sorted(st, key=lambda t: st[t][0] / st[t][1])[:PO_BOTTOM_N])
+    return {t: PO_AVAIL["bottom" if t in bottom else "rest"] for t in teams}
+
+
+def po_sched(lg, pid):
+    """Mean PO_SCORED schedule multiplier for the player's NBA team; 1.0 with no team or no schedule."""
     prof = lg.get("po", {}).get(lg["players"][pid].get("team"))
     return sum(prof["mult"][PO_WEEKS.index(w)] for w in PO_SCORED) / len(PO_SCORED) if prof else 1.0
+
+
+def po_mult(lg, pid):
+    """po_sched x the team's late-season availability (lg["avail"]; 1.0 when absent)."""
+    return po_sched(lg, pid) * lg.get("avail", {}).get(lg["players"][pid].get("team"), 1.0)
 
 
 def po_delta(lg, res):
@@ -83,6 +123,7 @@ def sim_value(lg, pids, weeks):
     locked score, the bench rotation plan, optimal stopping with the DNP correction. Season horizon, like
     team_value: injury tags are ignored and every held player (IR too) is in the pool. Whole-week absences
     (players' "out") are what the bench covers; each enters to first order, E ~ T + sum out_i (T without i - T).
+    In playoff weeks the late-season factor adds shutdowns: out = 1 - (1 - out) x lg["avail"][team].
     ponytail: first order ignores two players out the same week (~12% of weeks for 14 players at ~4.5% each).
     Upgrade: second-order pairs, ~7x the cost."""
     memo, key = lg.setdefault("sim", {}), (frozenset(pids), weeks)
@@ -95,10 +136,12 @@ def sim_value(lg, pids, weeks):
             days = gm.week_days(lg["sched"], w)
             return gm.team_score(dict(d, rosters=[{"roster_id": 0, "players": roster}], week=w,
                                       today=days[0] if days else lg["today"]), 0, {}, False)[0]
+        av = lg.get("avail", {})
+        out = lambda p, w: 1 - (1 - P[p].get("out", 0)) * (av.get(P[p].get("team"), 1.0) if w >= PO_WEEKS[0] else 1.0)
         total = 0.0
         for w in weeks:
             full = week(list(pids), w)
-            total += full + sum(P[p].get("out", 0) * (week([q for q in pids if q != p], w) - full) for p in pids)
+            total += full + sum(out(p, w) * (week([q for q in pids if q != p], w) - full) for p in pids)
         memo[key] = total / len(weeks)
     return memo.get(key, 0.0)
 
@@ -141,6 +184,7 @@ def load_league(cfg):
     sched = gm.schedule(league["season"])
     return {"slots": slots, "limit": len(league["roster_positions"]), "ir_slots": league["settings"]["reserve_slots"],
             "me": me, "teams": teams, "players": info, "po": playoff_profile(sched) if sched else {},
+            "avail": po_avail(sched) if sched else {},
             "sched": sched, "today": datetime.date.today()}
 
 
@@ -263,10 +307,12 @@ def trade_from_names(lg, give_names, get_names, with_team=None):
 
 
 def po_tag(lg, pid):
-    """', MIL PO 3/3/4 x1.04' (games in weeks 21/22/23, PO_SCORED multiplier); '' without a schedule."""
+    """', MIL PO 3/3/4 x0.96' (games in weeks 21/22/23, PO_SCORED multiplier), with ' = sched x1.04 avail x0.92'
+    when late-season availability applies; '' without a schedule."""
     team = lg["players"][pid].get("team")
-    prof = lg.get("po", {}).get(team)
-    return f", {team} PO {'/'.join(map(str, prof['games']))} x{po_mult(lg, pid):.2f}" if prof else ""
+    prof, av = lg.get("po", {}).get(team), lg.get("avail", {}).get(team)
+    split = f" = sched x{po_sched(lg, pid):.2f} avail x{av:.2f}" if av is not None else ""
+    return f", {team} PO {'/'.join(map(str, prof['games']))} x{po_mult(lg, pid):.2f}{split}" if prof else ""
 
 
 def label(lg, pid):
@@ -315,7 +361,8 @@ def report(lg, res):
                  f" -- {'likely' if likely else 'unlikely'} to accept")
     if lg.get("po"):
         lines.append(f"Playoff-weighted for us: {po_delta(lg, res):+.1f}/wk vs {us['d']:+.1f} regular season "
-                     f"(changed starters' V x their week {'-'.join(map(str, PO_SCORED))} schedule multiplier)")
+                     f"(changed starters' V x their week {'-'.join(map(str, PO_SCORED))} schedule multiplier"
+                     + (" x late-season availability: bottom-10 teams lose whole weeks to shutdowns)" if lg.get("avail") else ")"))
     if lg.get("sched"):
         reg, po = sim_weeks(lg)
         horizon = f"weeks {reg[0]}-{reg[-1]}" if reg else "no regular weeks left"
@@ -490,6 +537,10 @@ def test_sim():
     # One player out 5% of weeks keeps 95% of his week (first-order absences are exact for one player).
     one = sim_value(lg, ["s0"], (2,))
     assert one > 0 and abs(one - 0.95 * sim_value(dict(lg, players=dict(P, s0=dict(P["s0"], out=0.0)), sim={}), ["s0"], (2,))) < 1e-9
+    # The same week as playoff week 22: late-season availability 0.7 scales what he keeps (#31); regular weeks ignore it.
+    po_lg = dict(lg, sched=[dict(g, week=22) for g in sched], avail={"A": 0.7}, sim={})
+    assert abs(sim_value(po_lg, ["s0"], (22,)) - 0.7 * one) < 1e-9
+    assert abs(sim_value(dict(lg, avail={"A": 0.7}, sim={}), ["s0"], (2,)) - one) < 1e-9
     rx, ry = evaluate(lg, ["u"], ["x"]), evaluate(lg, ["u"], ["y"])
     assert abs(rx["us"]["d"] - 1.8) < 1e-9 and abs(ry["us"]["d"] - 1.8) < 1e-9, (rx["us"]["d"], ry["us"]["d"])
     sx, sy = sim_delta(lg, rx, "us", (2,)), sim_delta(lg, ry, "us", (2,))
@@ -656,6 +707,30 @@ def test():
     assert f"Alpha One (PG, V+10.0, sleeper#?, A4 PO 0/4/4 x{m['A4']:.2f})" in out, out
     assert f"Playoff-weighted for us: {want:+.1f}/wk vs -1.8 regular season (changed starters' V x their week 22-23" in out, out
     assert "Alpha Three (PG, V+4.0, sleeper#?)" in label(lg, "a3")  # no team: no PO tag, multiplier 1
+    # Late-season availability (#31) scales each team's schedule multiplier: A4 bottom-10, A2 not.
+    lg["avail"] = {"A4": PO_AVAIL["bottom"], "A2": PO_AVAIL["rest"]}
+    want = -1.8 + (m["A2"] * PO_AVAIL["rest"] - 1) * 9 - (m["A4"] * PO_AVAIL["bottom"] - 1) * 10
+    assert abs(po_delta(lg, r) - want) < 1e-9 and want > -1.8, (po_delta(lg, r), want)  # selling a bottom-10 starter gains
+    assert f"A4 PO 0/4/4 x{m['A4'] * PO_AVAIL['bottom']:.2f} = sched x{m['A4']:.2f} avail x0.71)" in label(lg, "a1")
+    assert "x late-season availability" in report(lg, r)
+    del lg["avail"]
+    # po_avail: 12 teams, the higher index always wins. Under PO_SPLIT_GAMES each everyone gets the mean; after,
+    # the bottom PO_BOTTOM_N get the bottom factor. until cuts the season at a date; an All-Star side is ignored.
+    names = [f"T{i:02d}" for i in range(12)]
+    games = []
+    for rnd in range(16):
+        rot = names[:1] + names[1:][rnd % 11:] + names[1:][:rnd % 11]
+        for i in range(6):
+            a, b = rot[i], rot[11 - i]
+            games.append({"status": "complete", "date": f"2026-11-{rnd + 1:02d}", "home": {"team": a, "points": 100 + names.index(a)},
+                          "away": {"team": b, "points": 100 + names.index(b)}})
+    games.append({"status": "complete", "date": "2026-11-30", "home": {"team": "SHQ", "points": 1}, "away": {"team": "CHK", "points": 2}})
+    av = po_avail(games)
+    assert av["T00"] == PO_AVAIL["bottom"] and av["T11"] == av["T10"] == PO_AVAIL["rest"] and "SHQ" not in av, av
+    assert sum(f == PO_AVAIL["bottom"] for f in av.values()) == PO_BOTTOM_N, av
+    early = po_avail(games, until="2026-11-14")  # 14 games each
+    mean = PO_BOTTOM_N / 12 * PO_AVAIL["bottom"] + (1 - PO_BOTTOM_N / 12) * PO_AVAIL["rest"]
+    assert len(set(early.values())) == 1 and abs(early["T00"] - mean) < 1e-12, early
     # --playoff re-ranks only. u2 for t1 swaps starter u2 for u3; a 2x u3 schedule lifts it from +0.2 to +5.2,
     # above u3 for t1 (+1.2, starters unchanged so PO = regular).
     toy["players"]["t1"]["sv"], toy["memo"] = 7, {}
