@@ -27,9 +27,9 @@ You are the GM for the Owner (league and Sleeper user IDs in `private/config.jso
 | Need | Command |
 |---|---|
 | Live roster: slots, status, board V/wk and FP/g, games this week, IR warnings | `./gm.py roster [team]` |
-| Mon–Sun game grid, base lineup, daily bench rotation plan (seats every bench player who fits an idle slot), tonight's lock lines with "via" options, 0–1 game flags | `./gm.py week [--week N] [--locked A,B]` (recorded locks apply automatically; `--locked` overrides them) |
-| Lock or wait on a score, judged on the slot he occupies; threshold table | `./gm.py lock "<player>" <score> [--slot-of "<starter>"] [--locked A,B] [--remaining N] [--play P]` |
-| Record a lock the Owner made in Sleeper (or undo one); `week`, `lock`, `fa` and `matchup` then use it all week | `./gm.py lock "<player>" <score> --commit`, `./gm.py lock "<player>" --uncommit` |
+| Mon–Sun game grid, base lineup, daily bench rotation plan (seats every bench player who fits an idle slot), tonight's lock lines with "via" options, 0–1 game flags | `./gm.py week [--week N] [--locked A,B] [--ev]` (recorded locks apply automatically; `--locked` overrides them) |
+| Lock or wait on a score, judged on the slot he occupies; threshold table | `./gm.py lock "<player>" <score> [--slot-of "<starter>"] [--locked A,B] [--remaining N] [--play P] [--ev]` |
+| Record a lock made in Sleeper, ours or the opponent's (or undo one); `week`, `lock`, `fa` and `matchup` then use it all week | `./gm.py lock "<player>" <score> --commit`, `./gm.py lock "<player>" --uncommit` |
 | Pending lock calls from this week's box scores (current starters); the night's bench scores are decided jointly: LOCK, LOCK via (with the move), WAIT or PASS | `./gm.py lock [--week N]` |
 | Board free agents vs our drop candidate (ΔV/wk, ΔE this week), waiver flags, team-level streams this week; Sleeper trending adds, off-board 2026 scorers, and a minutes radar (last-3 min/g ≥ season + 8, with FP/min) | `./gm.py fa [--pos X] [--top N]` |
 | Opponent, points so far, both teams' board strength, median game, win odds (H2H and vs median) | `./gm.py matchup [--week N]` |
@@ -48,6 +48,7 @@ Data sources (each degrades with a NOTE rather than guessing; the footer says wh
 - **Tip times:** ESPN's undocumented public scoreboard (Owner-approved Oct 20), cached per game date in `.cache/tips-*.json` and cross-checked against Sleeper's schedule. On live runs (not `--date`) the rotation plan and `fa` streams never feed a player whose game has tipped. On nights with tips at least 3 h apart, `week` also plans same-night slot reuse: a bench player who would sit takes a slot before or after its early game, and the early score's deadline becomes the late tip ([backtest](reports/2026-10-20/slot-reuse.md)). It needs both tip times.
 - **Play chances:** the official NBA injury report (official.nba.com, parsed with pypdf, cached in `.cache/injury-*.json`) for the games it lists: Probable 0.75, Questionable 0.50, Doubtful 0.25, Out 0. Other games use Sleeper's tag (DTD/GTD 0.50 next game, 0.75 later; Out 0 all week).
 - **Lock math:** rebuild_board's fitted optimal-stopping model with a backtested in-week DNP chance (8% per game, 12% on a back-to-back's second night); `--play` or `--remaining` override it for rest or injury news.
+- **Matchup lines:** in the live week, `lock` and `week` turn each slot's EV wait value into a matchup line: the score at which locking maximizes P(win H2H) + P(beat median), given every team's current state from Sleeper's matchup ([backtest](reports/2026-10-20/winodds-locks.md): +0.24 wins/20 wk with every state known). Recorded locks, ours and other teams', are exact. Other teams' unrecorded slots are modeled from Sleeper's reported points. A favourite's lines drop and an underdog's rise, mostly late in a close week; within 0.002 expected wins of indifferent, the EV line stands. Ask the Owner for the opponent's locks shown in Sleeper and record each with `lock "<their player>" <score> --commit`. `--ev` shows the EV lines. The win model is overconfident (#5), so treat a shift of a point or two as a lean.
 
 ## Staff and delegation
 
