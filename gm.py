@@ -1036,11 +1036,17 @@ def lock_game(dates, today, game=None):
     return game, sorted(day for day in dates if day > game), None
 
 
-def name_hits(pool, pids, raw):
-    """pids whose name matches raw: exact normalized matches, else those containing it."""
+def name_matches(pool, pids, raw):
+    """(pids whose normalized name is raw, pids whose name contains it)."""
     key = draft.norm(raw)
     name = {p: draft.norm(pool.get(p, {}).get("full_name") or "") for p in pids}
-    return [p for p in pids if name[p] == key] or [p for p in pids if key and key in name[p]]
+    return [p for p in pids if name[p] == key], [p for p in pids if key and key in name[p]]
+
+
+def name_hits(pool, pids, raw):
+    """pids whose name matches raw: exact normalized matches, else those containing it."""
+    exact, partial = name_matches(pool, pids, raw)
+    return exact or partial
 
 
 def find_mine(d, pids, raw):
@@ -1052,17 +1058,20 @@ def find_mine(d, pids, raw):
 
 
 def find_rostered(d, raw):
-    """A player for a lock record -> (pid, his roster): an Owner player if the name matches one (find_mine's rule),
-    else one on another team's roster by the same rule (other teams' locks feed the matchup lines)."""
+    """A player for a lock record, on any roster (other teams' locks feed the matchup lines) -> (pid, his roster).
+    Exact names on every roster come before substrings; at each stage an Owner match wins, and an ambiguous one exits."""
     pool, mine = d["pool"], find_roster(d, MY_ROSTER)
-    if name_hits(pool, mine["players"], raw):  # any Owner match decides (an ambiguous one exits, listing ours)
-        return find_mine(d, mine["players"], raw), mine
-    owner = {p: r for r in d["rosters"] if r["roster_id"] != MY_ROSTER for p in r["players"]}
-    hits = name_hits(pool, list(owner), raw)
-    if len(hits) != 1:
-        sys.exit(f"Player {raw!r} matches {len(hits)} rostered players outside our team" + (": " if hits else "") + ", ".join(
-            f"{short(pool, p)} ({d['team'].get(owner[p]['roster_id'], '?')})" for p in hits))
-    return hits[0], owner[hits[0]]
+    owner = {p: r for r in d["rosters"] for p in r["players"]}
+    theirs = [p for p in owner if owner[p]["roster_id"] != MY_ROSTER]
+    for stage in (0, 1):  # exact, then substring
+        for pids, who in ((mine["players"], "Owner players"), (theirs, "players on other teams")):
+            hits = name_matches(pool, pids, raw)[stage]
+            if len(hits) > 1:
+                sys.exit(f"Player {raw!r} matches {len(hits)} {who}: " + ", ".join(
+                    f"{short(pool, p)} ({d['team'].get(owner[p]['roster_id'], '?')})" for p in hits))
+            if hits:
+                return hits[0], owner[hits[0]]
+    sys.exit(f"Player {raw!r} matches no rostered player.")
 
 
 def lock_path(d):
@@ -1074,13 +1083,22 @@ def lock_path(d):
     return os.path.join(STATE, f"locks-{lg['season']}-w{d['week']:02d}.json") if lg else None
 
 
-def saved_locks(d):
-    """{pid: locked score} recorded this week with `lock <player> <score> --commit`; missing or unreadable = none."""
+def lock_records(d):
+    """{pid: (locked score, roster_id that locked him)} as recorded this week; a bare score (an older record) is ours.
+    Missing or unreadable = none."""
     try:
         with open(lock_path(d)) as f:
-            return {str(p): float(x) for p, x in json.load(f).items()}
-    except (TypeError, OSError, ValueError, AttributeError):
+            return {str(p): (float(x[0]), int(x[1])) if isinstance(x, list) else (float(x), MY_ROSTER)
+                    for p, x in json.load(f).items()}
+    except (TypeError, OSError, ValueError, AttributeError, IndexError):
         return {}
+
+
+def saved_locks(d):
+    """{pid: locked score} recorded this week with `lock <player> <score> --commit`, any team. A record whose player has
+    since moved to another roster is left out: his locked score stays with the team that locked it."""
+    now = {p: r["roster_id"] for r in d.get("rosters") or [] for p in r["players"]}
+    return {p: x for p, (x, rid) in lock_records(d).items() if now.get(p, rid) == rid}
 
 
 def locked_pids(d, names):
@@ -1101,9 +1119,9 @@ def commit_lock(d, a):
     if "state" in d and d["week"] != d["state"]["week"]:
         sys.exit(f"--commit/--uncommit records Sleeper's current week ({d['state']['week']}); "
                  f"drop --date/--week (this run is week {d['week']}).")
-    if os.path.exists(path) and not saved_locks(d) and open(path).read().strip() not in ("", "{}"):
+    if os.path.exists(path) and not lock_records(d) and open(path).read().strip() not in ("", "{}"):
         sys.exit(f"{path} exists but can't be read; fix or delete it before recording, so no lock record is lost.")
-    (pid, r), locks = find_rostered(d, a.player), saved_locks(d)
+    (pid, r), locks = find_rostered(d, a.player), lock_records(d)
     if a.uncommit:
         if pid not in locks:
             sys.exit(f"{short(pool, pid)} has no lock recorded this week.")
@@ -1114,13 +1132,12 @@ def commit_lock(d, a):
         if pid not in (r.get("starters") or []):
             sys.exit(f"{short(pool, pid)} isn't in a starting slot in Sleeper, and a locked player always is. "
                      "Check the lock in the app, then retry.")
-        locks[pid] = a.score
+        locks[pid] = (a.score, r["roster_id"])
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".tmp", "w") as f:
-        json.dump(locks, f)
+        json.dump({p: [x, rid] for p, (x, rid) in locks.items()}, f)
     os.replace(path + ".tmp", path)
-    team = {p: rr["roster_id"] for rr in d["rosters"] for p in rr["players"]}
-    listed = lambda mine: ", ".join(f"{short(pool, p)} {x:.1f}" for p, x in locks.items() if (team.get(p) == MY_ROSTER) == mine)
+    listed = lambda mine: ", ".join(f"{short(pool, p)} {x:.1f}" for p, (x, rid) in locks.items() if (rid == MY_ROSTER) == mine)
     print(f"{'Removed lock record for' if a.uncommit else 'Recorded lock:'} {short(pool, pid)}"
           + ("" if r["roster_id"] == MY_ROSTER else f" ({d['team'].get(r['roster_id'], 'other team')})")
           + ("" if a.uncommit else f" at {a.score:.1f}") + f". Locked this week (week {d['week']}): "
@@ -1273,6 +1290,9 @@ def pending_locks(d, r, wg, a=None):
     # Sleeper's lineup. healthy: the same without the DTD discount, built only when a LOCK might depend on it.
     ws = (week_context(d), week_context(d, sleeper_base=True)) if d["sched"] else None
     healthy_ws = {}
+    # ponytail: the matchup state is week's base (ws[0]) for every row, so a row judged on Sleeper's lineup (sb) leaves
+    # out ws[0]'s slot i, which may hold another player; and a via lock's price keeps the feed's own slot at its EV
+    # state. Both are small next to the win model's overconfidence (#5).
     mc = matchup_for(d, ws[0], a)
     print(f"Pending lock calls, week {d['week']} (current starters; you can only lock a game he started; skip slots already locked):")
     rows, out = [], []  # out: printed lines, or a row index whose call is decided jointly below
@@ -1759,13 +1779,19 @@ def slot_states(d, w, reported):
     """[(mean, variance)] of each slot's weekly locked score in week context w: week's model (base player plus the
     rotation plan's feeds, optimal stopping with the DNP correction). A recorded lock (d["locked"] pid with a
     d["lock_scores"] score, any team) is that score exactly. reported: {pid: points as reported by Sleeper}; an
-    unrecorded slot whose reported score reaches its value of waiting is taken as locked at that score."""
-    out = []
+    unrecorded slot whose reported score reaches its value of waiting is taken as locked at that score. Once the slot's
+    game today has tipped, that roll is the reported score, so the value of waiting starts tomorrow."""
+    out, today = [], w["today"]
     for i in range(len(SLOTS)):
-        s = w["base"].get(i)
+        s, days = w["base"].get(i), w["left"]
         feeds, extra = feeds_of(w, i)
-        m, m2 = stop_moments(slot_days(w["left"], s, feeds, w["games"], w["fpg"], extra))
-        x = reported.get(s, 0.0)
+        who = slot_who(today, s, feeds, w["games"], w["fpg"]) if days and days[0] == today else None
+        # ponytail: an in-progress game's partial score is judged as final, and a same-night reuse roll still to come
+        # tonight is dropped with the early one; both settle once tonight's games are final.
+        if who and tipped(today, d["pool"].get(who, {}).get("team")):
+            days = days[1:]
+        m, m2 = stop_moments(slot_days(days, s, feeds, w["games"], w["fpg"], extra))
+        x = reported.get(who if who in reported and days is not w["left"] else s, 0.0)
         if s in d.get("locked", []) and s in d.get("lock_scores", {}):
             m = d["lock_scores"][s]  # a recorded lock is that team's known score for the slot
             m2 = m * m
@@ -1840,7 +1866,7 @@ def all_locks(d):
 def matchup_context(d, w):
     """Every team's state for matchup lines: our slots in w (week's context for our roster), the opponent's total
     and the other teams' totals (each (mean, variance), recorded locks exact, Sleeper's reported points otherwise)
-    -> dict, or (None, why) when unavailable (then the EV lines stand)."""
+    -> (dict, ""), or (None, why) when unavailable (then the EV lines stand)."""
     if not matchup_live(d):
         return None, "not the live week (--date/--week dry run)"
     try:
@@ -2614,7 +2640,7 @@ def matchup_fixture():
 
 
 def test_matchup_lines():
-    """Matchup lines (issue #9's backtested rule): P(win H2H) + P(beat median) decides a lock, and recorded opponent
+    """Matchup lines (fb-gm-private#9's backtested rule): P(win H2H) + P(beat median) decides a lock, and recorded opponent
     locks set the opponent's state."""
     from unittest.mock import patch
     # slot_rest's second moment is stop_moments' over the same rolls.
@@ -2662,13 +2688,37 @@ def test_matchup_lines():
                 cmd_lock(dd, args(o, 75.0, commit=True))
         assert "(Them) at 75.0" in out.getvalue() and "other teams: O0 75.0, O1 75.0, O2 75.0" in out.getvalue(), out.getvalue()
         assert saved_locks(dd) == {"o0": 75.0, "o1": 75.0, "o2": 75.0} and locked_pids(dd, None) == []
-        for raw, why in (("S", "Owner players"), ("O", "outside our team")):  # an ambiguous Owner name never falls through
+        for raw, why in (("S", "Owner players"), ("O", "players on other teams"), ("Q", "no rostered player")):
             try:
                 find_rostered(dd, raw)
             except SystemExit as e:
                 assert why in str(e), e
             else:
                 raise AssertionError(raw)
+        # An exact name on another team beats a substring of ours (and an exact name of ours beats theirs).
+        jr = dict(dd, pool={**dd["pool"], "b": dict(dd["pool"]["b"], full_name="Jalen Smithson"),
+                            "o8": dict(dd["pool"]["o8"], full_name="Jalen Smith")})
+        assert find_rostered(jr, "Jalen Smith")[0] == "o8" and find_rostered(jr, "Jalen Smithson")[0] == "b"
+        assert find_rostered(jr, "len Smi")[0] == "b"  # no exact match anywhere: ours first among substrings
+        tie = dict(jr, pool={**jr["pool"], "b": dict(jr["pool"]["b"], full_name="Jalen Smith Jr.")})
+        assert find_rostered(tie, "Jalen Smith")[0] == "b"  # norm drops suffixes: a true tie, and ours wins it
+        # An opponent's player off their starting slots can't carry a lock; an opponent record can be undone.
+        benched = dict(dd, rosters=[dd["rosters"][0], dict(dd["rosters"][1], players=dd["rosters"][1]["players"] + ["o9"])],
+                       pool={**dd["pool"], "o9": dict(dd["pool"]["o8"], full_name="O9")})
+        try:
+            cmd_lock(benched, args("O9", 50.0, commit=True))
+        except SystemExit as e:
+            assert "isn't in a starting slot" in str(e), e
+        else:
+            raise AssertionError("bench lock recorded")
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_lock(dd, args("O2", 75.0, commit=True))  # re-recording replaces, not duplicates
+        assert json.load(open(dd["lock_path"]))["o2"] == [75.0, 1]
+        # A record follows the team that locked: once his player is ours, it is no longer anyone's current lock.
+        theirs = [p for p in dd["rosters"][1]["players"] if p != "o2"]
+        moved = dict(dd, rosters=[dict(dd["rosters"][0], players=dd["rosters"][0]["players"] + ["o2"]),
+                                  dict(dd["rosters"][1], players=theirs, starters=theirs)])
+        assert "o2" not in saved_locks(moved) and locked_pids(moved, None) == [] and "o2" in all_locks(dd)[1]
         mc, _ = matchup_context(dd, w)
         assert mc["opp_locked"] == ["o0", "o1", "o2"] and mc["opp"][0] > sum(m for m, _ in mc["mine"])
         cont, _, m2 = slot_rest(w, 0, dd["today"], "s0", moments=True)
@@ -2697,6 +2747,18 @@ def test_matchup_lines():
             cmd_lock(fed, args(None))
         text = out.getvalue()
         assert f"S0: {score:.1f} FP → WAIT (matchup line {under:.1f}" in text and "B: 20.0 FP → WAIT (slot line" in text, text
+        # Tonight's tipped roll is the slot's reported score, not a roll still to come (regression: S1's state counted a
+        # phantom extra roll today, overstating our other slots on every lock night).
+        cont1 = slot_rest(w, 1, dd["today"], "s1")[0]
+        played = [dict(m, starters_points=[0.0, x] + [0.0] * 7) if m["roster_id"] == MY_ROSTER else m
+                  for m in ms for x in [20.0]]
+        with patch.dict(CLOCK, tips={(dd["today"], "Ts1"): datetime.datetime(2026, 10, 20, 0)}), \
+                patch("draft.get", return_value=played):
+            low = matchup_context(dd, w)[0]["mine"][1]
+            played[0]["starters_points"][1] = cont1 + 5
+            high = matchup_context(dd, w)[0]["mine"][1]
+        assert abs(low[0] - cont1) < 1e-9 and low[1] > 0 and high == (cont1 + 5, 0.0), (low, high, cont1)
+        assert matchup_context(dd, w)[0]["mine"][1][0] > cont1 + 1  # untipped: tonight's roll is still to come
         # A bye week: median only, and no opponent locks to ask for.
         bye = [dict(m, matchup_id=None) for m in ms]
         with patch("draft.get", return_value=bye), contextlib.redirect_stdout(io.StringIO()) as out:
@@ -2705,6 +2767,14 @@ def test_matchup_lines():
         assert slot_line(mc, 0, cont, m2) > 0
         with patch("draft.get", return_value=bye), patch.dict(dd, week=21, state={"week": 21}):
             assert matchup_context(dd, w) == (None, "no opponent this week")  # playoffs: no median game either
+    # Off the live week the output is --ev's plus one NOTE line, so the EV calls are unchanged.
+    with contextlib.redirect_stdout(io.StringIO()) as dry, patch("draft.get", return_value=ms):
+        cmd_lock(dd, args("S0", score))
+    with contextlib.redirect_stdout(io.StringIO()) as ev_out:
+        cmd_lock(dd, args("S0", score, ev=True))
+    lines = dry.getvalue().splitlines()
+    assert [x for x in lines if not x.startswith("NOTE: matchup lines unavailable")] == ev_out.getvalue().splitlines()
+    assert len(lines) == len(ev_out.getvalue().splitlines()) + 1
     # Sleeper's matchup failing leaves the EV lines, with a NOTE.
     with patch.dict(CLOCK, now=datetime.datetime(2026, 10, 20, 12)), patch("draft.get", side_effect=OSError("down")):
         assert matchup_context(dd, w)[0] is None
