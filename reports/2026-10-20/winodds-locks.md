@@ -1,5 +1,7 @@
 # Win-odds lock calls: backtest for issue #9
 
+> **Superseded Oct 22, 2026:** the Owner asked for matchup-aware lines, so this rule is now built: `gm.py lock` and `week` use matchup lines in the live week (README, "Matchup lines" in CLAUDE.md). The numbers below still describe its expected size.
+
 Run on October 20, 2026. **Verdict: don't build it; close [#9](https://github.com/allmanr/fb-gm-private/issues/9).** A lock rule that maximizes P(win H2H) + P(beat median) gains **+0.24 wins per 20-week season** over `gm.py`'s EV thresholds (95% CI +0.18 to +0.30). The gain is real but below the ~0.3 wins/season gate set before the test. It is also an upper bound for live use: the sim knows every team's slot states exactly, and live in-week scores and win odds are not yet trusted ([#7](https://github.com/allmanr/fb-gm-private/issues/7), [#12](https://github.com/allmanr/fb-gm-private/issues/12)).
 
 Script and output: [`backtest/q9.py`](backtest/q9.py), [`backtest/q9.out`](backtest/q9.out). Rerun with `python3 q9.py 4000` in `backtest/` (about 9 minutes; logs download as for the [Lock-In backtest](lockin-backtest.md)).
