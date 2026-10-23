@@ -22,7 +22,7 @@ ACCEPT_COST = 1.0  # counterparty "plausibly accepts" if it loses under this V/w
 # ponytail: the room drafted near Sleeper's search_rank, so "their view" prices each player
 # at the board V of whoever holds that Sleeper rank (rank-matched V, "sv"). Upgrade: fit
 # each manager's own valuation from their trades once there are some.
-IR_OK = gm.IR_OK  # reserve_allow_out is 0: Out holds a bench spot
+IR_OK = gm.IR_OK  # includes Out: reserve_allow_out is 1
 # Fantasy playoffs are weeks 21-23; we project a top-2 seed, so our games are the week 22-23 schedules.
 PO_WEEKS, PO_SCORED, PO_FPG = (21, 22, 23), (22, 23), 40.0
 # Late-season availability (issue #6, reports/2026-10-21/late-season.md): 35+ FP/g players' share of playoff-window
@@ -318,8 +318,7 @@ def po_tag(lg, pid):
 def label(lg, pid):
     p = lg["players"][pid]
     inj = p["inj"]
-    tag = (f" [{inj}: OUT, no IR - holds a bench spot]" if inj == "Out"
-           else f" [{inj}, IR-eligible]" if (inj or "").upper() in IR_OK else f" [{inj}]" if inj else "")
+    tag = (f" [{inj}, IR-eligible]" if (inj or "").upper() in IR_OK else f" [{inj}]" if inj else "")
     return f"{p['name']} ({'/'.join(p['pos'])}, V+{p['v']:.1f}, sleeper#{p['rank'] or '?'}{po_tag(lg, pid)}){tag}"
 
 
@@ -469,14 +468,11 @@ def test_view_drops_and_ir():
                            b=pl("B", 5), c=pl("C", 4)),
               teams={1: dict(name="Us", players=["a", "injured"]),
                      2: dict(name="Them", players=["b", "c"])})
-    for status in ("IR", "Sus", "DNR"):
+    for status in ("IR", "Sus", "DNR", "Out"):
         lg["players"]["injured"]["inj"] = status
         r = evaluate(lg, ["a"], ["b", "c"])
         assert not r["us"]["drop"] and r["us"]["ir"] == {"injured"}, r["us"]
         assert "Must drop" not in report(lg, r)
-    lg["players"]["injured"]["inj"] = "Out"
-    r = evaluate(lg, ["a"], ["b", "c"])
-    assert r["us"]["drop"] == ["injured"] and not r["us"]["ir"], r["us"]
     lg["ir_slots"] = 0
     lg["players"]["injured"]["inj"] = "IR"
     assert evaluate(lg, ["a"], ["b", "c"])["us"]["drop"] == ["injured"]
@@ -565,7 +561,7 @@ def test_errors():
     lg = dict(slots=["C"], limit=2, ir_slots=0, me=1, players={"u": dict(name="U", pos=["C"], v=1.0)},
               teams={1: dict(name="Us", players=["u"]), 2: dict(name="Them", players=[])})
     league = {"league_id": "L", "sport": "nba", "roster_positions": gm.ROSTER_POSITIONS, "season": "2026",
-              "scoring_settings": dict(rb.SCORING, to=-1.0), "settings": {"reserve_allow_out": 0, "reserve_slots": 2}}
+              "scoring_settings": dict(rb.SCORING, to=-1.0), "settings": {"reserve_allow_out": 1, "reserve_slots": 1}}
     try:
         g["load_league"], sys.argv, g["PRIVATE"] = (lambda cfg: lg), ["trade.py", "Nobody", "U"], tmp
         try:
@@ -592,7 +588,7 @@ def test():
     def pl(name, pos, v, inj=None, sv=None):
         return {"name": name, "pos": pos, "v": v, "inj": inj, "rank": None, "ir": False, "sv": v if sv is None else sv}
     P = {"a1": pl("Alpha One", ["PG"], 10), "a2": pl("Alpha Two", ["C"], 6), "a3": pl("Alpha Three", ["PG"], 4),
-         "b1": pl("Bravo One", ["C"], 9), "b2": pl("Bravo Two", ["SG"], 5), "b3": pl("Bravo Three", ["C"], 2, "Out"),
+         "b1": pl("Bravo One", ["C"], 9), "b2": pl("Bravo Two", ["SG"], 5), "b3": pl("Bravo Three", ["C"], 2, "GTD"),
          "c1": pl("Charlie One", ["PG"], 7), "c2": pl("Alpha Twin", ["C"], 1)}
     lg = {"slots": ["G", "C"], "limit": 3, "ir_slots": 2, "me": 1, "players": P,
           "teams": {1: {"name": "Us", "players": ["a1", "a2", "a3"]},
@@ -626,8 +622,8 @@ def test():
     out = report(lg, r)
     assert "NOT ACCEPTABLE for us: -1.8/wk" in out and "-- likely to accept" in out, out
     assert "  Starters out: Alpha One (G), Alpha Two (C) | in: Alpha Three (G), Bravo One (C)" in out, out
-    assert "  Bench out: Bravo Three [Out] | in: Bravo Two" in out, out
-    assert "OUT, no IR" in label(lg, "b3")
+    assert "  Bench out: Bravo Three [GTD] | in: Bravo Two" in out, out
+    assert label(lg, "b3").endswith(") [GTD]")
 
     # 2-for-1: a2+a3 for b1. Bravo reaches 4 > limit 3 and drops its worst (b3, V 2).
     # Us: G a1 10 + C b1 9 = 19 vs 18.4 -> +0.6, one open spot.
