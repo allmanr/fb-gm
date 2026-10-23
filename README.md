@@ -24,7 +24,7 @@ In Sleeper Lock-In mode, each starting slot counts **one locked game score per w
 - **Start before tip-off to earn a roll:** A player must be in a starting slot when their NBA game begins for that game's score to be eligible to lock.
 - **Rotate bench players through unlocked slots:** Before locking a slot for the week, move bench players with early-week games into compatible starting slots (`PG/SG/G/SF/PF/F/C/UTIL`). If they boom, lock the score; if not, swap your next starter back in before their game starts.
 - **Lock before the slot's next tip:** You must lock a finished game before that player's next NBA game tips off, and before you move anyone else into his slot (a benched player's score can't be locked). Locks are irreversible. `gm.py` prints each deadline in CT from ESPN's tip times. If you never lock a slot, Sleeper counts the starter's final game of the week (which is `0` if they sit).
-- **IR rule:** Your 2 IR slots accept only Sleeper status `IR`, `Sus`, or `DNR` (`reserve_allow_out` is `0`). An `Out` player uses a bench spot.
+- **IR rule:** Your 1 IR slot accepts Sleeper status `IR`, `Sus`, `DNR` or `Out` (`reserve_allow_out` is `1`, changed Oct 22).
 
 ## In-season workflow
 

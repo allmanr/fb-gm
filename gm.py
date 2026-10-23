@@ -34,7 +34,8 @@ SCORING = rb.SCORING  # one table: the live validation must check the scoring th
 SLOTS = ["PG", "SG", "G", "SF", "PF", "F", "C", "UTIL", "UTIL"]
 ROSTER_POSITIONS = SLOTS + ["BN"] * 5
 MY_ROSTER = 4
-IR_OK = {"IR", "SUS", "DNR"}  # reserve_allow_out is 0: an Out player costs a bench spot
+IR_SLOTS = 1
+IR_OK = {"IR", "SUS", "DNR", "OUT"}  # reserve_allow_out is 1 (changed Oct 22): Out fits IR
 DAY = "%a %m/%d"
 # 2025-26 backtest: regulars sit 8.3% of their next in-week game, 12.4% on a back-to-back's second night.
 # rebuild_board.lock_values ignores in-week DNPs and overstates waiting by 8-9%; lock calls use these.
@@ -92,7 +93,7 @@ def validate(cfg, league, rosters):
     if league.get("roster_positions") != ROSTER_POSITIONS:
         bad.append(f"roster_positions {league.get('roster_positions')}, expected {ROSTER_POSITIONS}")
     st = league.get("settings") or {}
-    if st.get("reserve_allow_out") != 0 or st.get("reserve_slots") != 2:
+    if st.get("reserve_allow_out") != 1 or st.get("reserve_slots") != IR_SLOTS:
         bad.append(f"IR rules changed: reserve_allow_out={st.get('reserve_allow_out')}, reserve_slots={st.get('reserve_slots')}")
     mine = [r for r in rosters or [] if r.get("roster_id") == MY_ROSTER]
     if not mine or cfg["user_id"] not in [mine[0].get("owner_id")] + (mine[0].get("co_owners") or []):
@@ -293,7 +294,7 @@ def board_values(notes):
 
 
 def out_all_week(st):
-    """Out, or an IR-eligible tag (IR/Sus/DNR) on an active-roster player: no games this week."""
+    """Out, or an IR-eligible tag (IR/Sus/DNR/Out) on an active-roster player: no games this week."""
     return st == "Out" or st.upper() in IR_OK
 
 
@@ -750,10 +751,8 @@ def play_note(st, pm, today, pid=None):
 def slot_warnings(slot, name, st, n_reserve):
     """Roster WARN lines for one player in a slot (BN, IR or a starting slot) with Sleeper status st."""
     warn = []
-    if st == "Out" and slot == "BN":
-        warn.append(f"{name} is Out on the bench: costs a bench spot (IR takes only IR/Sus/DNR)")
     if st.upper() in IR_OK and slot != "IR":
-        warn.append(f"{name} is {st} but not on IR: move to IR to free a spot ({2 - n_reserve} IR open)")
+        warn.append(f"{name} is {st} but not on IR: move to IR to free a spot ({IR_SLOTS - n_reserve} IR open)")
     if slot == "IR" and st.upper() not in IR_OK:
         warn.append(f"{name} on IR but status {st or 'healthy'}: Sleeper blocks adds until he's moved off IR "
                     f"(unverified), and he needs a bench spot")
@@ -769,7 +768,7 @@ def cmd_roster(d, a):
     bench = [p for p in r["players"] if p not in starters and p not in reserve]
     rank = {pid: i for i, pid in enumerate(d["board"], 1)}
     print(f"{d['team'][r['roster_id']]} (roster {r['roster_id']}) — week {d['week']} — "
-          f"{len(r['players'])} players, IR {len(reserve)}/2")
+          f"{len(r['players'])} players, IR {len(reserve)}/{IR_SLOTS}")
     print(f"  {'Slot':<5}{'Player':<23}{'Pos':<10}{'Team':<5}{'Status':<8}{'Board':>6}{'V/wk':>6}{'FP/g':>6}  Games this week")
     rows = [(SLOTS[i] if i < len(SLOTS) else "?", p) for i, p in enumerate(starters)] + \
            [("BN", p) for p in bench] + [("IR", p) for p in reserve]
@@ -2425,11 +2424,12 @@ def test():
     cfg = {"league_id": "L", "user_id": "u4"}
     league = {"league_id": "L", "sport": "nba", "roster_positions": list(ROSTER_POSITIONS),
               "scoring_settings": dict(SCORING, dd=0.0, bonus_pt_40p=0.0),
-              "settings": {"reserve_allow_out": 0, "reserve_slots": 2}}
+              "settings": {"reserve_allow_out": 1, "reserve_slots": 1}}
     rosters = [{"roster_id": 4, "owner_id": "u4", "players": [], "starters": []}]
     assert validate(cfg, league, rosters) == []
     for broken in (dict(league, scoring_settings=dict(SCORING, to=-1.0)),
                    dict(league, roster_positions=ROSTER_POSITIONS[:-1]),
+                   dict(league, settings={"reserve_allow_out": 0, "reserve_slots": 1}),
                    dict(league, settings={"reserve_allow_out": 1, "reserve_slots": 2}),
                    dict(league, sport="nfl"), None):
         assert validate(cfg, broken, rosters), broken
@@ -2784,7 +2784,8 @@ def test():
     assert stream_gains(dl, ["f"], ["a"], {"f": tue}) == []
 
     # IR slot holding a player who is no longer IR/Sus/DNR (regression: no warning).
-    assert any("on IR but status Out" in x for x in slot_warnings("IR", "P", "Out", 1))
+    assert slot_warnings("IR", "P", "Out", 1) == []
+    assert any("move to IR" in x for x in slot_warnings("BN", "P", "Out", 0))
     assert any("status healthy" in x for x in slot_warnings("IR", "P", "", 1)) and slot_warnings("IR", "P", "Sus", 1) == []
 
     # Changes diff: transactions, roster moves and status changes, Owner first; seen transactions skipped.
