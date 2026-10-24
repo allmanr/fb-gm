@@ -87,3 +87,11 @@ This repository is public. `private/` is gitignored and is its own git repositor
 ## Checks
 
 `scripts/check.sh` runs the four offline suites below on `/usr/bin/python3` (3.8); install it once per clone as the pre-commit hook with the line at the top of that file. `./gm.py --test` (validation refusal, lock math, rotation, tip clock, injury report, FA and change diffs, execution review), `./trade.py --test` (resolution, lineup deltas, uneven trades, suggest), `./draft.py --test` (draft order, lineup fitting, display), `python3 rebuild_board.py --test` (board model and saved board) run offline; CI runs the same script on every push and PR. `python3 fit_lockin.py --test` fetches 2025-26 Sleeper logs to verify the fitted constants, including the blend's. The lock math and bench factor are validated in `reports/2026-10-20/lockin-backtest.md`.
+
+## Review guidelines
+
+Code review rules for Codex on GitHub PRs (AGENTS.md is this file):
+
+- **Prose-only PRs: post no findings.** If every file a PR changes is `README.md`, `prep-notes.md` or under `reports/` (the readme, status notes and research write-ups), leave no review comments. In a mixed PR, don't comment on those files either.
+- **Agent instructions are code.** Review changes to `CLAUDE.md`/`AGENTS.md`, `.claude/commands/` and `.claude/agents/` like code, even in a Markdown-only PR. Flag a rule that contradicts what `gm.py` does, or a decision rule that would lead to a wrong lock, lineup, waiver or trade call.
+- Review code (`*.py`, `scripts/`, `.github/`) as usual.
