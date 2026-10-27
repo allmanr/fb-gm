@@ -1000,8 +1000,9 @@ def dtd_flip(score, value, healthy):
 def lock_slot(d, pid, anchor, game_day):
     """Slot verdict inputs for pid's game on game_day, in the slot whose Sleeper starter is anchor
     (pid himself, or the starter he was rotated in for; None: the slot week's plan fed him into that day).
-    Judged on week's base lineup and plan, as week's lock lines are, unless that base moves the anchor out of
-    his Sleeper slot (or, for a feed, doesn't feed him): then on Sleeper's lineup as it stands.
+    Judged on week's base lineup and plan, as week's lock lines are (a base that benches the anchor still judges
+    his Sleeper slot, as pending_locks' feed does), unless that base moves the anchor to another slot (or, for a
+    feed, doesn't feed him): then on Sleeper's lineup as it stands.
     -> (wait value, description, upper bound, fills: [(day, who)], week context, slot index, second moment) or None."""
     pool, sleeper = d["pool"], find_roster(d, MY_ROSTER).get("starters") or []
     for w in (week_context(d), week_context(d, sleeper_base=True)):
@@ -1011,6 +1012,8 @@ def lock_slot(d, pid, anchor, game_day):
             how = " (assumed from week's rotation plan; --slot-of to override)"
         else:
             i, how = next((i for i, p in w["base"].items() if p == anchor), None), ""
+            if i is None and sleeper.index(anchor) in w["base"]:  # base benches him: his score feeds his Sleeper slot (pending_locks' feed)
+                i = sleeper.index(anchor)
         if i is not None and (anchor is None or sleeper.index(anchor) == i):
             break
     if i is None:
@@ -2934,6 +2937,19 @@ def test():
         cmd_week(dd, argparse.Namespace(locked="S0"))
     assert "  start B (" in out.getvalue(), out.getvalue()  # regression: bench-to-start changes were never listed
     assert w["base"][0] == "s0" and w["blocked"] == {0} and "b" in w["base"].values() and "a" not in w["base"].values(), w["base"]
+    # Week's base benches Sleeper starter A for B: lock A's score judges his Sleeper slot on week's base, as the joint
+    # pending call does (regression #12: lock fell back to Sleeper's lineup, where the plan feeds B elsewhere on day 3).
+    dd = lock_fixture()
+    d2, d3 = dd["today"] + datetime.timedelta(1), dd["today"] + datetime.timedelta(2)
+    dd["vals"].update(a=(10.0, 20.0), b=(10.0, 60.0))
+    dd["today"] = d2
+    dd["sched"] = [g for g in dd["sched"] if (g["home"]["team"], g["date"]) != ("Ts6", d3.isoformat())]
+    w = week_context(dd)
+    assert w["base"][a_slot] == "b" and "a" not in w["base"].values(), w["base"]
+    want = lanes_after(w, d2, {a_slot: "a"})[a_slot][1:3]
+    slot = lock_slot(dd, "a", "a", d2)
+    assert (slot[0], slot[3]) == want and want[1] == [(d3, "b")], (slot, want)
+    assert want[0] > slot_rest(week_context(dd, sleeper_base=True), a_slot, d2, "a")[0] + 5  # the bases really differ
     # An adopted base keeps every starter in his Sleeper slot when legal and prints every changed slot, and lock
     # judges a slot on that base (regression: fill_slots reshuffled eight starters, week listed only "start B",
     # and lock judged S0's slot on Sleeper's lineup, where bench B feeds it Thursday: a higher line than week's).
