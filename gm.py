@@ -1000,8 +1000,9 @@ def dtd_flip(score, value, healthy):
 def lock_slot(d, pid, anchor, game_day):
     """Slot verdict inputs for pid's game on game_day, in the slot whose Sleeper starter is anchor
     (pid himself, or the starter he was rotated in for; None: the slot week's plan fed him into that day).
-    Judged on week's base lineup and plan, as week's lock lines are, unless that base moves the anchor out of
-    his Sleeper slot (or, for a feed, doesn't feed him): then on Sleeper's lineup as it stands.
+    Judged on week's base lineup and plan, as week's lock lines are (a base that benches the anchor still judges
+    his Sleeper slot, as pending_locks' feed does), unless that base moves the anchor to another slot (or, for a
+    feed, doesn't feed him): then on Sleeper's lineup as it stands.
     -> (wait value, description, upper bound, fills: [(day, who)], week context, slot index, second moment) or None."""
     pool, sleeper = d["pool"], find_roster(d, MY_ROSTER).get("starters") or []
     for w in (week_context(d), week_context(d, sleeper_base=True)):
