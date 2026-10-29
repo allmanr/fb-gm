@@ -1333,7 +1333,7 @@ def cmd_lock(d, a):
         # Locking also frees the bench players the plan fed into his slot for other slots (regression: Fox's 41.0 was
         # a one-slot WAIT but +3.3 for the team). Both arms replan week's base, as week --locked does.
         # Both arms use his plays as lock computed them (play_map from today would count the scored game as a DTD's next).
-        dw, locks = with_plays(d, plays, True), saved_locks(d)
+        dw, locks = dict(with_plays(d, plays, True), kept_locks=kept_locks(d)), saved_locks(d)
         # The score's own game is spent either way (slot_states would still count an unfinished one as to come).
         spent = {day: 0.0 for day in gm if day <= game}
         dw = dict(dw, game_overrides={**dw.get("game_overrides", {}), pid: {**dw.get("game_overrides", {}).get(pid, {}), **spent}})
@@ -1347,9 +1347,11 @@ def cmd_lock(d, a):
             print(f"  NOTE: box scores unavailable ({e}); whole-team comparison withheld (it needs other starters' scores).")
         standing = {}
         for p in starters if box is not None else []:
-            done = lambda day: day < d["today"] or final(day, pool.get(p, {}).get("team"))
-            last = max((day for day in games_of(d, p, wg) if done(day)), default=None)  # a DNP after it voids his score
-            if p != pid and last in box.get(p, {}) and observed_start(d, r["roster_id"], p, last) is not False:
+            team = pool.get(p, {}).get("team")
+            # His latest tipped game: a DNP voids the score before it, and one still in progress has no standing score.
+            last = max((day for day in games_of(d, p, wg) if day < d["today"] or tipped(day, team)), default=None)
+            if (p != pid and last in box.get(p, {}) and (last < d["today"] or final(last, team))
+                    and observed_start(d, r["roster_id"], p, last) is not False):
                 standing[p] = box[p][last]
 
         def wait_total(sb):
@@ -2495,6 +2497,29 @@ def test_whole_team():
             contextlib.redirect_stdout(io.StringIO()) as out:
         cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
     assert delta(out.getvalue()) > 0, out.getvalue()
+    # Codex P2: S2's Wed game is in progress, so his Tue 100 has expired; it must not stand.
+    d3 = lock_fixture()
+    tue, wed = d3["today"], d3["today"] + datetime.timedelta(1)
+    d3["today"], d3["league"] = wed, {"season": "2026"}
+    deltas = []  # whole-team lines (totals too: an expired score would raise both arms alike)
+    for box in ({"s0": {tue: 20.0}}, {"s0": {tue: 20.0}, "s2": {tue: 100.0}}):
+        with patch(__name__ + ".box_scores", return_value=box), contextlib.redirect_stdout(io.StringIO()) as out, \
+                patch.dict(CLOCK, now=datetime.datetime(2026, 10, 22, 1), tips={(wed, "Ts2"): datetime.datetime(2026, 10, 22, 0)}):
+            cmd_lock(d3, argparse.Namespace(**{**vars(args), "score": 20.0, "game": tue}))
+        deltas.append(re.search(r"whole team .*", out.getvalue()).group(0))
+    assert deltas[0] == deltas[1], deltas
+    # Codex P2: a departed player's recorded lock keeps its slot's score in both totals.
+    import tempfile
+    totals = lambda o: re.search(r"lock 100.0 → ([\d.]+); wait → ([\d.]+)", o).groups()
+    with tempfile.TemporaryDirectory() as tmp:
+        d4 = dict(lock_fixture(), lock_path=os.path.join(tmp, "locks.json"))
+        with contextlib.redirect_stdout(io.StringIO()) as before:
+            cmd_lock(d4, args)
+        with open(d4["lock_path"], "w") as f:
+            json.dump({"gone": [100.0, MY_ROSTER, 3]}, f)  # locked at SF, since traded
+        with contextlib.redirect_stdout(io.StringIO()) as after:
+            cmd_lock(d4, args)
+    assert all(float(y) > float(x) + 50 for x, y in zip(totals(before.getvalue()), totals(after.getvalue()))), after.getvalue()
 
 
 def week_out(d, play):
