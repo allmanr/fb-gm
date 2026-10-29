@@ -1,6 +1,6 @@
 # board.txt audit — 2026-10-19
 
-> Archived research. Rankings, injury claims, simulations, and pick advice below are historical. Use the [current league rules](../../prep-notes.md#league-rules) and a fresh `./draft.py` run for decisions. OUT players use a bench spot in this league. Old season-total scores and survival percentages are retired.
+> Archived research. Rankings, injury claims, simulations, and pick advice below are historical. Use the [current league rules](../../README.md#league-rules) and a fresh `./draft.py` run for decisions. OUT players use a bench spot in this league. Old season-total scores and survival percentages are retired.
 
 Source of truth: Sleeper `/players/nba` cached at `/home/rallman/fb-gm/.cache/players-2026-10-19.json`, matched with draft.py's own `norm()`/`load_board()`. Live `./draft.py --top 300` ran clean (pre_draft, Owner slot 1 on the clock): **no "not matched" warnings**, board shows "262 left, 0 taken" out of 263 names. The missing one is Sochan (see below).
 

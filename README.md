@@ -23,7 +23,7 @@ This is the single source for the league's operational rules. `gm.py` validates 
 
 - **Scoring:** `pts +1, reb +1.5, ast +2, stl +2.5, blk +2.5, tpm +1, fgm +2, fga -1, ftm +1, ftmi -1, to -2`. Misses and turnovers cost points: efficient bigs and high-assist, low-turnover guards gain; inefficient volume shooters lose. Sleeper's `search_rank` is generic, not this scoring.
 - **Format:** 10-team redraft; weekly head-to-head plus a game against the league median; weeks 1–20, then playoffs in weeks 21–23 (6 teams, top 2 bye). Trades sit in a 2-day review. Trade deadline week 18 (Sleeper's help text contradicts itself on whether that means about 4 weeks earlier; confirm the date in League → Settings before relying on it).
-- **Lineup:** `PG, SG, G, SF, PF, F, C, UTIL, UTIL` plus 5 bench. Slots follow Sleeper `fantasy_positions` (`gm.py roster` prints them); multi-position players are worth more.
+- **Lineup:** `PG, SG, G, SF, PF, F, C, UTIL, UTIL` plus 5 bench. Slots follow Sleeper `fantasy_positions` (`gm.py roster` prints them); multi-position players are worth more for rotation fit, though the board adds no blanket bonus (prep-notes [Board and model rules](prep-notes.md#board-and-model-rules)).
 - **IR:** 1 slot; it accepts Sleeper status `IR`, `Sus`, `DNR` or `Out` (`reserve_allow_out` is `1`, changed Oct 22 from 2 slots without Out).
 - **Waivers:** rolling priority (`waiver_type` 0; a FAAB league reports 2, checked Oct 19). A successful claim sends you to the back (`gm.py fa` prints our position). Dropped players sit on waivers about 47 hours. `waiver_after_game_start` is on: once a free agent's team tips this week he becomes a waiver claim until the waiver clear day (`waiver_day_of_week` 0; exact day unverified), so he's an instant add only before his team's first game of the week. `gm.py fa` tags these players `WAIVERS (played <day>)` and leaves them out of streams.
 
@@ -123,4 +123,4 @@ git clone git@github.com:<you>/<private-repo>.git private
 | `private/state/` | `gm.py changes` snapshot, `lock --commit` records and live starting-lineup observations (written by `gm.py`) |
 | `private/needles.txt` | League name, IDs, usernames and team names that `scripts/check.sh` refuses in public commits |
 
-Back up after a session that changed it: `git -C private add -A && git -C private commit -m notes && git -C private push`. The tools and their tests run without `private/` except for live league commands, which need `config.json`.
+Back up after a session that changed it (agents ask the Owner first): `git -C private add -A && git -C private commit -m notes && git -C private push`. The tools and their tests run without `private/` except for live league commands, which need `config.json`.

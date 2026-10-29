@@ -61,20 +61,33 @@ def check_paths(name, text, exists):
 
 
 def check_commands(name, text, helptext):
-    """Every `./gm.py <sub> --flag` (and the other scripts' flags) in a code span must be in --help."""
+    """Every `./gm.py <sub> --flag` (and the other scripts' flags) in a code span must be in --help: the
+    subcommand must exist, and each flag must be global or belong to that subcommand."""
     errs = []
     for span in re.findall(r'`([^`\n]+)`', text):
         for script in SCRIPTS:
             m = re.search(r'(?:\./|python3 )%s\b(.*)' % re.escape(script), span)
             if not m:
                 continue
-            args = m.group(1)
-            subs = re.findall(r'\{([\w,]+)\}', helptext(script, None))
-            subs = subs[0].split(',') if subs else []
-            sub = next((w for w in args.split() if w in subs), None)
-            known = helptext(script, None) + (helptext(script, sub) if sub else '')
+            args = re.sub(r'<[^>]*>', '<x>', m.group(1))  # one token per placeholder such as <that Sunday>
+            top = helptext(script, None)
+            subs = re.findall(r'\{([\w,]+)\}', top)
+            known = top
+            if subs:
+                # Global flags only: the description below the usage block names every subcommand's flags.
+                known = top.split('\n\n')[0]
+                valued = re.findall(r'\[(--[\w-]+) [A-Z_]+\]', known)
+                toks, sub = args.split(), None
+                while toks and toks[0].startswith('-'):
+                    toks = toks[2:] if toks[0] in valued else toks[1:]
+                if toks and not toks[0].startswith('<'):
+                    if toks[0] in subs[0].split(','):
+                        sub = toks[0]
+                    else:
+                        errs.append('%s: `%s` has no subcommand %s' % (name, span, toks[0]))
+                known += helptext(script, sub) if sub else ''
             for flag in re.findall(r'(?<![\w-])(--[a-z][\w-]*)', args):
-                if flag not in re.findall(r'--[a-z][\w-]*', known):
+                if flag != '--help' and flag not in re.findall(r'--[a-z][\w-]*', known):
                     errs.append('%s: `%s` has no %s' % (name, span, flag))
     return errs
 
@@ -99,9 +112,12 @@ def selftest():
         'b.md: missing anchor a.md#gone', 'b.md: broken link c.md']
     assert check_paths('b.md', '`a.md` `./a.md` `.c/d.py` `<x>/y.md` `--flag` `V/wk`', ex) == [
         'b.md: missing path `.c/d.py`']
-    fake = lambda s, sub: 'positional {lock,week}\n --date' + (' --commit' if sub == 'lock' else '')
-    assert check_commands('b.md', '`./gm.py --date D lock "P" 5 --commit` `./gm.py week --commit`', fake) == [
-        'b.md: `./gm.py week --commit` has no --commit']
+    fake = lambda s, sub: ('usage: gm.py [--date DATE] {lock,week}\n\n  lock P S --commit  record a lock\n'
+                           if sub is None else ' --commit' if sub == 'lock' else '')
+    assert check_commands('b.md', '`./gm.py --date <that Sunday> lock "P" 5 --commit` `./gm.py <command> --help` '
+                          '`./gm.py week --commit` `./gm.py lineup --week 3`', fake) == [
+        'b.md: `./gm.py week --commit` has no --commit',
+        'b.md: `./gm.py lineup --week 3` has no subcommand lineup', 'b.md: `./gm.py lineup --week 3` has no --week']
 
 
 def main():
