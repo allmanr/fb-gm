@@ -430,8 +430,10 @@ def footer(d):
           + f"; today={d['today']}.")
     m = re.search(r"week (\d+)$", basis)
     through = int(m.group(1)) if m else 0 if basis.startswith("frozen") else None
-    if through is not None and d.get("week") and through < d["week"] - 1:
-        print(f"NOTE: board not blended through week {d['week'] - 1} (last finished); "
+    # The live week comes from today's date, not --week (a future or past week would misname the last finished one).
+    last = (week_of(d.get("sched"), d["today"]) or d.get("week") or 0) - 1
+    if through is not None and through < last:
+        print(f"NOTE: board not blended through week {last} (last finished); "
               "run python3 rebuild_board.py --blend --write.")  # #19
 
 
@@ -3522,6 +3524,7 @@ def run_tests():
     with patch("builtins.open", mock_open(read_data=blended)), contextlib.redirect_stdout(io.StringIO()) as out:
         footer({"sched": sched2, "week": 4, "today": datetime.date(2026, 11, 9)})
         footer({"sched": sched2, "week": 3, "today": datetime.date(2026, 11, 2)})
+        footer({"sched": sched2, "week": 4, "today": datetime.date(2026, 10, 28)})  # --week 4 during week 2: no note
     assert out.getvalue().count("board not blended through week 3") == 1, out.getvalue()
     # ... and when the player tags were fetched (regression: "the daily players-*.json" hid a 9-hour-old file).
     import tempfile
