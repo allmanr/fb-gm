@@ -1342,27 +1342,30 @@ def cmd_lock(d, a):
         # Other starters' finished, unlocked scores stand in both arms (slot_states keeps one that reaches its wait value).
         try:
             box = box_scores(d) if d.get("league") else {}
-        except (OSError, ValueError):
-            box = {}
+        except (OSError, ValueError) as e:
+            box = None
+            print(f"  NOTE: box scores unavailable ({e}); whole-team comparison withheld (it needs other starters' scores).")
         standing = {}
-        for p in starters:
-            g = {day: fp for day, fp in box.get(p, {}).items() if day < d["today"] or final(day, pool.get(p, {}).get("team"))}
-            if p != pid and g and observed_start(d, r["roster_id"], p, max(g)) is not False:
-                standing[p] = g[max(g)]
+        for p in starters if box is not None else []:
+            done = lambda day: day < d["today"] or final(day, pool.get(p, {}).get("team"))
+            last = max((day for day in games_of(d, p, wg) if done(day)), default=None)  # a DNP after it voids his score
+            if p != pid and last in box.get(p, {}) and observed_start(d, r["roster_id"], p, last) is not False:
+                standing[p] = box[p][last]
 
         def wait_total(sb):
             ww = week_context(dw, sb)
             states = slot_states(dw, ww, standing)
             j = next((j for j, q in ww["base"].items() if q == pid), None)
             # Nothing scheduled can replace it later in his slot (a DNP'd game still would): waiting keeps the score.
-            later = j is not None and any(day > game for f in feeds_of(ww, j) for day in f)
+            later = j is not None and any(day >= game for f in feeds_of(ww, j) for day in f)  # incl. a same-night feed
             return sum(m for m, _ in states) + (a.score if j is not None and not after and not later else 0.0)
 
-        # Either arm may keep Sleeper's lineup (week's base can bench a finished starter, dropping his standing score).
-        lock_t = max(team_score(dl, MY_ROSTER, standing, sb)[0] for sb in (False, True))
-        wait_t = max(wait_total(sb) for sb in (False, True))
-        print(f"  whole team (EV, week's plan replanned): lock {a.score:.1f} → {lock_t:.1f}; wait → {wait_t:.1f} "
-              f"({lock_t - wait_t:+.1f} for locking)")
+        if box is not None:
+            # Either arm may keep Sleeper's lineup (week's base can bench a finished starter, dropping his standing score).
+            lock_t = max(team_score(dl, MY_ROSTER, standing, sb)[0] for sb in (False, True))
+            wait_t = max(wait_total(sb) for sb in (False, True))
+            print(f"  whole team (EV, week's plan replanned): lock {a.score:.1f} → {lock_t:.1f}; wait → {wait_t:.1f} "
+                  f"({lock_t - wait_t:+.1f} for locking)")
     if mc:
         _, lock_odds, wait_odds = win_line(mc, slot[5], (slot[0], max(0.0, slot[6] - slot[0] ** 2)))
         print(f"  matchup odds: lock {a.score:.1f} → {odds_text(lock_odds(a.score))}; wait → {odds_text(wait_odds)}"
@@ -2484,6 +2487,14 @@ def test_whole_team():
             contextlib.redirect_stdout(io.StringIO()) as out:
         cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
     assert delta(out.getvalue()) <= 0, out.getvalue()
+    # Codex P2s: a failed fetch withholds the comparison; a Wed DNP voids S2's Tue score (no standing 100).
+    with patch(__name__ + ".box_scores", side_effect=OSError("offline")), contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
+    assert "whole-team comparison withheld" in out.getvalue() and "whole team (EV" not in out.getvalue(), out.getvalue()
+    with patch(__name__ + ".box_scores", return_value={"s0": {wed: 20.0}, "s2": {wed - datetime.timedelta(1): 100.0}}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
+    assert delta(out.getvalue()) > 0, out.getvalue()
 
 
 def week_out(d, play):
