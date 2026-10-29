@@ -210,9 +210,10 @@ def tipped(day, team):
 def deadline(pool, pid, after, fills):
     """When pid's finished score must be decided -> (day, team, who) or None: the earlier of his next tip (after:
     his later game dates) and the slot's next tip in the plan (fills: slot_rest's [(day, who)]), because a score
-    must be decided before he leaves the slot. who is the player whose tip it is."""
+    must be decided before he leaves the slot. who is the player whose tip it is. A fill whose tip has passed is
+    skipped: either it happened (he left the slot) or the Owner didn't make it, so it no longer bounds the score (#20)."""
     team = lambda p: pool.get(p, {}).get("team")
-    opts = ([(after[0], pid)] if after else []) + fills[:1]
+    opts = ([(after[0], pid)] if after else []) + [f for f in fills if not tipped(f[0], team(f[1]))][:1]
     if not opts:
         return None
     day, who = min(opts, key=lambda o: (o[0], CLOCK["tips"].get((o[0], team(o[1]))) or datetime.datetime.min))
@@ -2944,6 +2945,8 @@ def test_reuse():
         assert fills == [(thu, "b"), (thu, "a")], fills
         assert abs(rest - stop_value([[(30, w["games"]["b"][thu])], [(40, w["games"]["a"][thu])]])) < 1e-9, rest
         assert deadline(dw["pool"], "a", [thu], fills) == (thu, "Tb", "b")
+        with patch.dict(CLOCK, now=U(2026, 10, 23, 1)):  # #20: B's tip passed with A still in the slot
+            assert deadline(dw["pool"], "a", [thu], fills) == (thu, "Ta", "a")
         with contextlib.redirect_stdout(io.StringIO()) as out:
             cmd_lock(dw, argparse.Namespace(player="A", score=35, locked=None, slot_of=None, game=wed, remaining=None, play=None))
         assert "then Thu B, Thu A available" in out.getvalue() and "lock before Thu 10/22 7:00 PM CT tip" in out.getvalue(), out.getvalue()
