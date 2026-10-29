@@ -952,6 +952,7 @@ def cmd_week(d, a):
         print("Play chance used for tagged players: " + "; ".join(notes))
     sleeper = dict(enumerate(w["r"].get("starters") or []))
     swaps = [(i, p) for i, p in sorted(base.items()) if sleeper.get(i) != p]  # every slot that changes: the full move set
+    mc = matchup_for(d, w, a) if w["left"] else None
     if swaps:
         print(f"Base lineup changes vs Sleeper (+{w['gain']:.1f} expected locked FP with games left; make all of them):")
         for i, p in swaps:
@@ -960,7 +961,7 @@ def cmd_week(d, a):
             # night's base benched Jokić's 90.0 for Poeltl's 30.9).
             posted = old in w["games"] and old not in base.values() and any(
                 day < d["today"] or tipped(day, pool.get(old, {}).get("team")) for day in w["games"][old])
-            line = stop_value(slot_days(w["left"], p, *feeds_of(w, i)[:1], games, fpg, feeds_of(w, i)[1]))  # with its feeds
+            line = slot_line(mc, i, *stop_moments(slot_days(w["left"], p, *feeds_of(w, i)[:1], games, fpg, feeds_of(w, i)[1])))
             print((f"  move {short(pool, p)} from {now[p]} to {SLOTS[i]}" if p in now else
                    f"  start {short(pool, p)} ({w['exp'][p]:.1f}) at {SLOTS[i]}")
                   + (f" (for {short(pool, old)}" + (f"; first lock {short(pool, old)}'s posted score instead if it's "
@@ -984,7 +985,6 @@ def cmd_week(d, a):
     flags, tonight, pooled = [], [], False
     lanes = lanes_after(w, w["left"][0]) if w["left"] else {}
     reach = feed_reach(w, lanes)
-    mc = matchup_for(d, w, a) if w["left"] else None
     lane_line = {j: slot_line(mc, j, lane[1], lane[3]) for j, lane in lanes.items()}
     for i, s in sorted(base.items()):
         if i in w["blocked"]:
@@ -1339,12 +1339,17 @@ def cmd_lock(d, a):
         dw = dict(dw, game_overrides={**dw.get("game_overrides", {}), pid: {**dw.get("game_overrides", {}).get(pid, {}), **spent}})
         dl = dict(dw, locked=d["locked"] + [pid], lock_scores={**locks, pid: a.score})
         dw = dict(dw, lock_scores=locks)
-        lock_t, ww = team_score(dl, MY_ROSTER, {}, False)[0], week_context(dw)
-        states = slot_states(dw, ww, {})
-        wait_t = sum(m for m, _ in states)
-        j = next((j for j, q in ww["base"].items() if q == pid), None)
-        if j is not None and states[j][0] == 0:  # no later roll in his slot: waiting keeps the posted score
-            wait_t += a.score
+
+        def wait_total(sb):
+            ww = week_context(dw, sb)
+            states = slot_states(dw, ww, {})
+            j = next((j for j, q in ww["base"].items() if q == pid), None)
+            # No later roll in his slot: waiting keeps the posted score.
+            return sum(m for m, _ in states) + (a.score if j is not None and states[j][0] == 0 else 0.0)
+
+        # Either arm may keep Sleeper's lineup (week's base can bench a finished starter, dropping his standing score).
+        lock_t = max(team_score(dl, MY_ROSTER, {}, sb)[0] for sb in (False, True))
+        wait_t = max(wait_total(sb) for sb in (False, True))
         print(f"  whole team (EV, week's plan replanned): lock {a.score:.1f} → {lock_t:.1f}; wait → {wait_t:.1f} "
               f"({lock_t - wait_t:+.1f} for locking)")
     if mc:
@@ -2443,6 +2448,11 @@ def test_whole_team():
     d["pool"]["s0"]["injury_status"], d["today"] = "", d["today"] + datetime.timedelta(2)
     with contextlib.redirect_stdout(io.StringIO()) as out:
         cmd_lock(d, args)
+    assert re.search(r"wait → [\d.]+ \([+-]0\.0 for locking\)", out.getvalue()), out.getvalue()
+    # Codex P2: week's base benches a finished starter (E 0); waiting in Sleeper's lineup still keeps his Wed score.
+    d["sched"] = [g for g in d["sched"] if g["home"]["team"] == "Tb" or g["date"] != d["today"].isoformat()]  # only B left
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(d, argparse.Namespace(**{**vars(args), "game": d["today"] - datetime.timedelta(1)}))
     assert re.search(r"wait → [\d.]+ \([+-]0\.0 for locking\)", out.getvalue()), out.getvalue()
 
 
