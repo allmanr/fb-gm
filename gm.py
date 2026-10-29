@@ -1339,16 +1339,27 @@ def cmd_lock(d, a):
         dw = dict(dw, game_overrides={**dw.get("game_overrides", {}), pid: {**dw.get("game_overrides", {}).get(pid, {}), **spent}})
         dl = dict(dw, locked=d["locked"] + [pid], lock_scores={**locks, pid: a.score})
         dw = dict(dw, lock_scores=locks)
+        # Other starters' finished, unlocked scores stand in both arms (slot_states keeps one that reaches its wait value).
+        try:
+            box = box_scores(d) if d.get("league") else {}
+        except (OSError, ValueError):
+            box = {}
+        standing = {}
+        for p in starters:
+            g = {day: fp for day, fp in box.get(p, {}).items() if day < d["today"] or final(day, pool.get(p, {}).get("team"))}
+            if p != pid and g and observed_start(d, r["roster_id"], p, max(g)) is not False:
+                standing[p] = g[max(g)]
 
         def wait_total(sb):
             ww = week_context(dw, sb)
-            states = slot_states(dw, ww, {})
+            states = slot_states(dw, ww, standing)
             j = next((j for j, q in ww["base"].items() if q == pid), None)
-            # No later roll in his slot: waiting keeps the posted score.
-            return sum(m for m, _ in states) + (a.score if j is not None and states[j][0] == 0 else 0.0)
+            # Nothing scheduled can replace it later in his slot (a DNP'd game still would): waiting keeps the score.
+            later = j is not None and any(day > game for f in feeds_of(ww, j) for day in f)
+            return sum(m for m, _ in states) + (a.score if j is not None and not after and not later else 0.0)
 
         # Either arm may keep Sleeper's lineup (week's base can bench a finished starter, dropping his standing score).
-        lock_t = max(team_score(dl, MY_ROSTER, {}, sb)[0] for sb in (False, True))
+        lock_t = max(team_score(dl, MY_ROSTER, standing, sb)[0] for sb in (False, True))
         wait_t = max(wait_total(sb) for sb in (False, True))
         print(f"  whole team (EV, week's plan replanned): lock {a.score:.1f} → {lock_t:.1f}; wait → {wait_t:.1f} "
               f"({lock_t - wait_t:+.1f} for locking)")
@@ -2422,6 +2433,7 @@ def test_posted_swap():
 
 def test_whole_team():
     """lock prints the replanned team delta (equal to the slot's own when nothing else moves); week takes --play."""
+    from unittest.mock import patch
     d = lock_fixture()
     args = argparse.Namespace(player="S0", score=100.0, locked=None, slot_of=None, game=None, remaining=None, play=None, ev=True)
     with contextlib.redirect_stdout(io.StringIO()) as out:
@@ -2454,6 +2466,24 @@ def test_whole_team():
     with contextlib.redirect_stdout(io.StringIO()) as out:
         cmd_lock(d, argparse.Namespace(**{**vars(args), "game": d["today"] - datetime.timedelta(1)}))
     assert re.search(r"wait → [\d.]+ \([+-]0\.0 for locking\)", out.getvalue()), out.getvalue()
+    # Codex P2s: a later game he'll sit (--play 0) still replaces an unlocked score; and another starter's standing
+    # 100 isn't free for the plan to feed over. S0 (PG) and S2 (G, a PG) are done Thu; bench G2 (PG) plays Thu.
+    delta = lambda o: float(re.search(r"\(([+-][\d.]+) for locking\)", o).group(1))
+    dd = lock_fixture()
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "play": 0.0}))
+    assert abs(delta(out.getvalue()) - 100) < 0.1, out.getvalue()
+    thu = dd["today"] + datetime.timedelta(2)
+    dd["today"], dd["league"] = thu, {"season": "2026"}
+    dd["sched"] = [g for g in dd["sched"] if g["home"]["team"] not in ("Ts0", "Ts2") or g["date"] != thu.isoformat()]
+    dd["sched"].append({"week": 1, "date": thu.isoformat(), "home": {"team": "Tg2"}, "away": {"team": "Zg2"}})
+    dd["pool"]["g2"], dd["vals"]["g2"] = {"full_name": "G2", "team": "Tg2", "fantasy_positions": ["PG"]}, (10.0, 40.0)
+    dd["rosters"][0]["players"].append("g2")
+    wed = thu - datetime.timedelta(1)
+    with patch(__name__ + ".box_scores", return_value={"s0": {wed: 20.0}, "s2": {wed: 100.0}}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
+    assert delta(out.getvalue()) <= 0, out.getvalue()
 
 
 def week_out(d, play):
@@ -3094,6 +3124,12 @@ def test_matchup_lines():
 
 
 def test():
+    from unittest.mock import patch
+    with patch(__name__ + ".fetch", side_effect=OSError("tests run offline")):  # a test that needs data patches fetch
+        run_tests()
+
+
+def run_tests():
     test_review()
     test_review_pooled()
     test_matchup_lines()
