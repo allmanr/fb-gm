@@ -1334,6 +1334,16 @@ def cmd_lock(d, a):
                   f"he didn't start can't be locked. If you rotated him in, pass --slot-of \"<starter he replaced>\".")
     elif a.remaining is not None or a.play is not None:
         print("NOTE: schedule unavailable; the verdict covers his own games only.")
+    # Off the slot once its Sleeper starter or a planned fill tipped there after his game: the score is gone
+    # (deadline() skips past-tip fills, #20, so it can't say so).
+    gone = None
+    if slot and pid not in starters:
+        now_in = starters[slot[5]] if slot[5] < len(starters) else None
+        gone = next((w for day, w in [(day, now_in) for day in slot[4]["games"].get(now_in, {}) if day > game] + slot[3]
+                     if w not in (None, pid) and tipped(day, pool.get(w, {}).get("team"))), None)
+    if gone:
+        sys.exit(f"Lock window closed: {short(pool, gone)} has played in his slot since {game.strftime(DAY)}; "
+                 "that score cannot be locked.")
     st = f" [{status(pool, pid)}]" if status(pool, pid) else ""
     print(f"Remaining games from {src}{st}")
     mc = matchup_for(d, slot[4], a) if slot else None
@@ -2947,6 +2957,17 @@ def test_reuse():
         assert deadline(dw["pool"], "a", [thu], fills) == (thu, "Tb", "b")
         with patch.dict(CLOCK, now=U(2026, 10, 23, 1)):  # #20: B's tip passed with A still in the slot
             assert deadline(dw["pool"], "a", [thu], fills) == (thu, "Ta", "a")
+            # ...but once B tipped in that slot with A benched, the fill happened and A's Wed score is gone.
+            r0 = dw["rosters"][0]
+            moved = dict(dw, rosters=[dict(r0, starters=[p if p != "a" else "b" for p in r0["starters"]])] + dw["rosters"][1:])
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    cmd_lock(moved, argparse.Namespace(player="A", score=35, locked=None, slot_of="B", game=wed,
+                                                       remaining=None, play=None))
+            except SystemExit as e:
+                assert "B has played in his slot" in str(e), e
+            else:
+                raise AssertionError("benched A's score after B's tip was lockable")
         with contextlib.redirect_stdout(io.StringIO()) as out:
             cmd_lock(dw, argparse.Namespace(player="A", score=35, locked=None, slot_of=None, game=wed, remaining=None, play=None))
         assert "then Thu B, Thu A available" in out.getvalue() and "lock before Thu 10/22 7:00 PM CT tip" in out.getvalue(), out.getvalue()
