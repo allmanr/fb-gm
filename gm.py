@@ -1257,6 +1257,9 @@ def commit_lock(d, a):
           + ("" if r["roster_id"] == MY_ROSTER else f" ({d['team'].get(r['roster_id'], 'other team')})")
           + ("" if a.uncommit else f" at {a.score:.1f}") + f". Locked this week (week {d['week']}): "
           + (listed(True) or "none") + (f"; other teams: {listed(False)}" if listed(False) else ""))
+    if not a.uncommit and r["roster_id"] != MY_ROSTER:
+        print("NOTE: Sleeper shows every starter's latest game, locked or not; record only a lock the app marks as "
+              "locked. matchup warns if a later game disproves it.")
 
 
 def cmd_lock(d, a):
@@ -1434,12 +1437,23 @@ def eligible_reported(d, ms):
     except (OSError, ValueError) as e:
         print(f"NOTE: score eligibility unavailable ({e}); unrecorded reported scores omitted from win model.")
         return {}
-    reported = {}
+    reported, records = {}, saved_locks(d)
     for m in ms:
+        # A locked player can't leave his starting slot, so a recorded one on the bench disproves the record.
+        for pid in set(records) & set(m.get("players") or []) - set(m.get("starters") or []):
+            print(f"WARN: {short(d['pool'], pid)}'s recorded lock {records[pid]:.1f} is contradicted: he's off the starting "
+                  f"slots. Undo it: ./gm.py lock \"{short(d['pool'], pid)}\" --uncommit")
         for pid, score in zip(m.get("starters") or [], m.get("starters_points") or []):
             games = {day: fp for day, fp in box.get(pid, {}).items() if day <= d["today"]}
             if games:
                 day = max(games)
+                # A real lock on an earlier game shows instead of his latest once that game is done, so Sleeper
+                # reporting the latest game disproves a record on an earlier one (Oct 28: displayed scores recorded).
+                x = records.get(pid)
+                if (x is not None and x != score == games[day] and x in [fp for dd, fp in games.items() if dd < day]
+                        and (day < d["today"] or final(day, d["pool"].get(pid, {}).get("team")))):
+                    print(f"WARN: {short(d['pool'], pid)}'s recorded lock {x:.1f} is contradicted: Sleeper reports {score:.1f}, "
+                          f"his {day:%a} game. Undo it: ./gm.py lock \"{short(d['pool'], pid)}\" --uncommit")
                 # An earlier score surviving a later completed game exposes a lock (#3), regardless of observations.
                 earlier = (games[day] != score and score in [fp for dd, fp in games.items() if dd < day]
                            and (day < d["today"] or final(day, d["pool"].get(pid, {}).get("team"))))
@@ -2374,6 +2388,20 @@ def test_lineup_eligibility():
     boxes = {"a": {day: 100.0, day + datetime.timedelta(1): 20.0}}
     with patch(__name__ + ".box_scores", return_value=boxes), contextlib.redirect_stdout(io.StringIO()):
         assert eligible_reported(d, ms) == {"a": 100.0}
+    # A record on the earlier game while Sleeper reports the later one is flagged (Oct 28: displayed score recorded).
+    late = [dict(ms[0], starters_points=[20.0])]
+    with patch(__name__ + ".box_scores", return_value=boxes), patch(__name__ + ".saved_locks", return_value={"a": 100.0}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        eligible_reported(d, late)
+    assert "recorded lock 100.0 is contradicted" in out.getvalue(), out.getvalue()
+    benched = [dict(ms[0], starters=["0"], players=["a"])]
+    with patch(__name__ + ".box_scores", return_value=boxes), patch(__name__ + ".saved_locks", return_value={"a": 100.0}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        eligible_reported(d, ms)  # a real exposed lock: Sleeper still reports the recorded 100.0
+        assert "contradicted" not in out.getvalue(), out.getvalue()
+        eligible_reported(d, benched)
+    assert "off the starting slots" in out.getvalue(), out.getvalue()
+    with patch(__name__ + ".box_scores", return_value=boxes), contextlib.redirect_stdout(io.StringIO()):
         d["today"] = day + datetime.timedelta(1)
         with patch.dict(CLOCK, now=datetime.datetime(2026, 10, 22, 23), tips={(d["today"], "Ta"): datetime.datetime(2026, 10, 22, 22)}):
             assert eligible_reported(d, ms) == {}, "an in-progress game cannot prove an earlier lock"
