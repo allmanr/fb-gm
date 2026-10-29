@@ -596,18 +596,20 @@ def keep_slots(base, sleeper, fixed, pos):
     return base
 
 
-def rotation(slots, base, bench, games, days, pos, fpg, blocked=(), gone=()):
+def rotation(slots, base, bench, games, days, pos, fpg, blocked=(), gone=(), floor=None):
     """Day by day, put each bench player who plays (best first) into the idle-starter slot where his game
     adds the most expected locked score for the week. Locked (blocked) slots take no feeds, and a bench player
     whose game has tipped ((pid, day) in gone) can't be moved in.
 
-    base: {slot_index: pid}; bench: pids; games: {pid: {date: play chance}} (play_map). Returns {day: {slot_index: pid}}.
+    base: {slot_index: pid}; bench: pids; games: {pid: {date: play chance}} (play_map); floor: {slot_index: a standing
+    score the slot keeps unless its rolls beat it}. Returns {day: {slot_index: pid}}.
     """
     # ponytail: greedy by marginal gain, not a joint optimum; benching a playing starter is left to judgment.
     plan = {day: {} for day in days}
 
     def value(i):
-        return stop_value(slot_days(days, base.get(i), {day: plan[day][i] for day in days if i in plan[day]}, games, fpg))
+        return max((floor or {}).get(i, 0.0),
+                   stop_value(slot_days(days, base.get(i), {day: plan[day][i] for day in days if i in plan[day]}, games, fpg)))
 
     for day in days:
         for p in sorted((p for p in bench if day in games.get(p, ()) and (p, day) not in gone), key=lambda p: -fpg.get(p, 0)):
@@ -908,7 +910,8 @@ def week_context(d, sleeper_base=False, rid=MY_ROSTER):
     bench = sorted((p for p in active if p not in starters and p not in locked), key=lambda p: -fpg[p])
     gone = {(p, day) for p in bench for day in left if day in games[p] and tipped(day, pool.get(p, {}).get("team"))}
     pos = {p: pos_of(pool, p) for p in active}
-    plan = rotation(SLOTS, base, bench, games, left, pos, fpg, blocked, gone)
+    standing = d.get("standing") or {}  # lock's team comparison: posted scores feeds must beat
+    plan = rotation(SLOTS, base, bench, games, left, pos, fpg, blocked, gone, {i: standing[p] for i, p in base.items() if p in standing})
     tips = {(p, day): CLOCK["tips"].get((day, pool.get(p, {}).get("team"))) for p in active for day in games[p]}
     extra = reuse(SLOTS, base, bench, games, left, pos, fpg, plan, tips, blocked, gone)
     return dict(blocked=blocked, tipped=gone, gain=gain, r=r, wg=wg, days=days, left=left, games=games, fpg=fpg, exp=exp, base=base, bench=bench, plan=plan,
@@ -1357,17 +1360,11 @@ def cmd_lock(d, a):
             team = pool.get(p, {}).get("team")
             # His latest tipped game: a DNP voids the score before it, and one still in progress has no standing score.
             last = max((day for day in games_of(d, p, wg) if day < d["today"] or tipped(day, team)), default=None)
-            if (p != pid and last in box.get(p, {}) and (last < d["today"] or final(last, team))
+            if (p != pid and p not in d["locked"] and last in box.get(p, {}) and (last < d["today"] or final(last, team))
                     and observed_start(d, r["roster_id"], p, last) is not False):
                 standing[p] = box[p][last]
 
-        # A standing score that beats his own remaining games is banked in both arms: lock it, so no feed is planned
-        # into a slot it already closes. ponytail: judged on his own games, not the slot's feeds.
-        own = week_context(dw)["exp"]
-        closed = {p: x for p, x in standing.items() if x >= own.get(p, 0.0)}
-        standing = {p: x for p, x in standing.items() if p not in closed}
-        dw = dict(dw, locked=d["locked"] + list(closed), lock_scores={**locks, **closed})
-        dl = dict(dl, locked=dl["locked"] + list(closed), lock_scores={**dl["lock_scores"], **closed})
+        # Standing scores floor their slots in the rotation plan (feeds go where they beat them) and in slot_states.
         # With no game left of his own, waiting leaves his score standing like the others' (a later feed can still beat it).
         mine = {**standing, pid: a.score} if not after else standing
         dw, dl = dict(dw, standing=mine), dict(dl, standing=standing)
@@ -2563,6 +2560,45 @@ def test_whole_team():
                          argparse.Namespace(**{**vars(args), "score": 40.0, "game": wed}))
             lines.append(delta(out.getvalue()))
     assert lines[0] == lines[1], lines
+    # Codex P2s: a recorded lock ignores the box score; a standing 20 whose slot G2 can feed (36.8) isn't banked.
+    with tempfile.TemporaryDirectory() as tmp:
+        dl_ = dict(dd, lock_path=os.path.join(tmp, "locks.json"))
+        outs = []
+        for s2_box in (60.0, 80.0):
+            with open(dl_["lock_path"], "w") as f:
+                json.dump({"s2": [60.0, MY_ROSTER, 2]}, f)
+            with patch(__name__ + ".box_scores", return_value={"s0": {wed: 40.0}, "s2": {wed: s2_box}}), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                cmd_lock(dl_, argparse.Namespace(**{**vars(args), "score": 40.0, "game": wed}))
+            outs.append(re.search(r"whole team .*", out.getvalue()).group(0))
+    assert outs[0] == outs[1], outs
+    outs = []
+    for box in ({"s0": {wed: 43.0}, "s2": {wed: 20.0}}, {"s0": {wed: 43.0}}):  # G2's feed beats the 20 either way
+        with patch(__name__ + ".box_scores", return_value=box), contextlib.redirect_stdout(io.StringIO()) as out:
+            cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 43.0, "game": wed}))
+        outs.append(re.search(r"whole team .*", out.getvalue()).group(0))
+    assert outs[0] == outs[1], outs
+    # Codex P2: a standing 100 at G floors G in the rotation plan. On Wed, W2 (PG/SF) feeds SF (idle Wed; S3 plays Thu)
+    # instead of G, whose 100 already beats a roll: the same totals as recording S2's lock.
+    d6 = lock_fixture()
+    tue6, wed6 = d6["today"], d6["today"] + datetime.timedelta(1)
+    d6["today"], d6["league"] = wed6, {"season": "2026"}
+    d6["sched"] = [g for g in d6["sched"] if not (g["home"]["team"] == "Ts2" and g["date"] > tue6.isoformat())
+                   and not (g["home"]["team"] == "Ts3" and g["date"] == wed6.isoformat())]
+    d6["sched"].append({"week": 1, "date": wed6.isoformat(), "home": {"team": "Tw2"}, "away": {"team": "Zw2"}})
+    d6["pool"]["w2"], d6["vals"]["w2"] = {"full_name": "W2", "team": "Tw2", "fantasy_positions": ["PG", "SF"]}, (10.0, 40.0)
+    d6["rosters"][0]["players"].append("w2")
+    outs = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for rec in ({}, {"s2": [100.0, MY_ROSTER, 2]}):
+            with open(os.path.join(tmp, "locks.json"), "w") as f:
+                json.dump(rec, f)
+            with patch(__name__ + ".box_scores", return_value={"s0": {tue6: 50.0}, "s2": {tue6: 100.0}}), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                cmd_lock(dict(d6, lock_path=os.path.join(tmp, "locks.json")),
+                         argparse.Namespace(**{**vars(args), "player": "S0", "score": 50.0, "game": tue6}))
+            outs.append(re.search(r"whole team .*", out.getvalue()).group(0))
+    assert outs[0] == outs[1], outs
     # Codex P2: a departed player's recorded lock keeps its slot's score in both totals.
     import tempfile
     totals = lambda o: re.search(r"lock 100.0 → ([\d.]+); wait → ([\d.]+)", o).groups()
