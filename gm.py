@@ -927,6 +927,8 @@ def cmd_week(d, a):
         if not name or not 0 <= p <= 1:
             sys.exit(f"--play wants Name=P with P from 0 to 1, e.g. --play \"LeBron James=0.8\" (got {item!r}).")
         d.setdefault("game_overrides", {})[pid] = {day: p for day in games_of(d, pid, week_games(d["sched"], d["week"])) if day >= d["today"]}
+        if p > 0 and out_all_week(status(d["pool"], pid)):  # news says he returns: drop the Out tag's zero FP/g
+            d["pool"] = {**d["pool"], pid: dict(d["pool"][pid], injury_status="")}
         print(f"--play: {short(d['pool'], pid)} plays each game from today with chance {p:.2f}.")
     pool, w = d["pool"], week_context(d)
     days, plan, base, games, fpg = w["days"], w["plan"], w["base"], w["games"], w["fpg"]
@@ -958,10 +960,11 @@ def cmd_week(d, a):
             # night's base benched Jokić's 90.0 for Poeltl's 30.9).
             posted = old in w["games"] and old not in base.values() and any(
                 day < d["today"] or tipped(day, pool.get(old, {}).get("team")) for day in w["games"][old])
+            line = stop_value(slot_days(w["left"], p, *feeds_of(w, i)[:1], games, fpg, feeds_of(w, i)[1]))  # with its feeds
             print((f"  move {short(pool, p)} from {now[p]} to {SLOTS[i]}" if p in now else
                    f"  start {short(pool, p)} ({w['exp'][p]:.1f}) at {SLOTS[i]}")
                   + (f" (for {short(pool, old)}" + (f"; first lock {short(pool, old)}'s posted score instead if it's "
-                                                    f"≥ {w['exp'][p]:.1f}, record it with lock --commit and rerun week" if posted else "") + ")"
+                                                    f"≥ {line:.1f}, record it with lock --commit and rerun week" if posted else "") + ")"
                      if old not in (None, "0") else ""))
     print("Rotation plan (move bench player into the slot before tip on days its starter is idle; "
           "keep the score only if it beats the lock threshold):")
@@ -1283,8 +1286,8 @@ def cmd_lock(d, a):
         pm = play_map(gm, st, max(d["today"], game + datetime.timedelta(1)), pid)
         return [pm[day] for day in after[len(after) - n_left:]]
 
-    def with_plays(dd, plays):
-        if a.remaining is not None or a.play is not None:
+    def with_plays(dd, plays, always=False):
+        if always or a.remaining is not None or a.play is not None:
             # --remaining N keeps the last N dates (e.g. the next game is ruled out); other players' games stay intact.
             kept = after[len(after) - n_left:]
             override = {day: 0.0 for day in after if day not in kept}
@@ -1329,12 +1332,19 @@ def cmd_lock(d, a):
     if slot and pid in starters:
         # Locking also frees the bench players the plan fed into his slot for other slots (regression: Fox's 41.0 was
         # a one-slot WAIT but +3.3 for the team). Both arms replan week's base, as week --locked does.
-        dw, locks = with_plays(d, plays), saved_locks(d)
+        # Both arms use his plays as lock computed them (play_map from today would count the scored game as a DTD's next).
+        dw, locks = with_plays(d, plays, True), saved_locks(d)
         # The score's own game is spent either way (slot_states would still count an unfinished one as to come).
         spent = {day: 0.0 for day in gm if day <= game}
         dw = dict(dw, game_overrides={**dw.get("game_overrides", {}), pid: {**dw.get("game_overrides", {}).get(pid, {}), **spent}})
         dl = dict(dw, locked=d["locked"] + [pid], lock_scores={**locks, pid: a.score})
-        lock_t, wait_t = (team_score(x, MY_ROSTER, {}, False)[0] for x in (dl, dict(dw, lock_scores=locks)))
+        dw = dict(dw, lock_scores=locks)
+        lock_t, ww = team_score(dl, MY_ROSTER, {}, False)[0], week_context(dw)
+        states = slot_states(dw, ww, {})
+        wait_t = sum(m for m, _ in states)
+        j = next((j for j, q in ww["base"].items() if q == pid), None)
+        if j is not None and states[j][0] == 0:  # no later roll in his slot: waiting keeps the posted score
+            wait_t += a.score
         print(f"  whole team (EV, week's plan replanned): lock {a.score:.1f} → {lock_t:.1f}; wait → {wait_t:.1f} "
               f"({lock_t - wait_t:+.1f} for locking)")
     if mc:
@@ -2393,6 +2403,16 @@ def test_posted_swap():
     with contextlib.redirect_stdout(io.StringIO()) as out:
         cmd_week(d, argparse.Namespace(locked=None))
     assert "start G (36.8) at PG (for S0; first lock S0's posted score instead if it's ≥ 36.8" in out.getvalue(), out.getvalue()
+    # Codex P2: the line is the slot's value with its feeds, not the incoming player's own games (H feeds PG Wed).
+    d["today"] = thu - datetime.timedelta(1)
+    d["sched"] = [g for g in d["sched"] if not (g["home"]["team"] == "Ts0" and g["date"] >= d["today"].isoformat())]
+    d["sched"].append({"week": 1, "date": d["today"].isoformat(), "home": {"team": "Th"}, "away": {"team": "Zh"}})
+    d["pool"]["h"], d["vals"]["h"] = {"full_name": "H", "team": "Th", "fantasy_positions": ["PG"]}, (10.0, 40.0)
+    d["rosters"][0]["players"].append("h")
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_week(d, argparse.Namespace(locked=None))
+    line = float(re.search(r"first lock S0's posted score instead if it's ≥ ([\d.]+)", out.getvalue()).group(1))
+    assert line > 40, out.getvalue()
 
 
 def test_whole_team():
@@ -2406,6 +2426,24 @@ def test_whole_team():
     assert abs(lock_t - wait_t - (100 - wait)) < 0.15, out.getvalue()
     total = lambda play: float(re.search(r"with rotation ([\d.]+)", week_out(d, play)).group(1))
     assert total("S0=0") < total(None) and "--play: S0 plays each game from today with chance 0.00" in week_out(d, "S0=0")
+    # Codex P2s: --play overrides an Out tag; a DTD's team arms use lock's plays (scored game spent, not his "next");
+    # a final score with no later roll in his slot is kept by waiting (delta 0, not +score).
+    d["pool"]["s0"]["injury_status"] = "Out"
+    out_t, healthy = total(None), None
+    d["pool"]["s0"]["injury_status"] = ""
+    healthy = total(None)
+    d["pool"]["s0"]["injury_status"] = "Out"
+    assert out_t < healthy and abs(total("S0=0.92") - healthy) < 1, (out_t, healthy, total("S0=0.92"))
+    d["pool"]["s0"]["injury_status"] = "DTD"
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(d, args)
+    wait = float(re.search(r"slot wait value ([\d.]+)", out.getvalue()).group(1))
+    lock_t, wait_t = map(float, re.search(r"lock 100.0 → ([\d.]+); wait → ([\d.]+)", out.getvalue()).groups())
+    assert abs(lock_t - wait_t - (100 - wait)) < 0.15, out.getvalue()
+    d["pool"]["s0"]["injury_status"], d["today"] = "", d["today"] + datetime.timedelta(2)
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(d, args)
+    assert re.search(r"wait → [\d.]+ \([+-]0\.0 for locking\)", out.getvalue()), out.getvalue()
 
 
 def week_out(d, play):
