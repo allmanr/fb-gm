@@ -598,7 +598,7 @@ def main():
             raise SystemExit('REFUSING: board.txt changed during rebuild')
         if args.blend:
             with ACTUALS.with_suffix('.csv.tmp').open('w', newline='') as out:
-                writer = csv.DictWriter(out, ACTUAL_FIELDS)
+                writer = csv.DictWriter(out, ACTUAL_FIELDS, lineterminator='\n')
                 writer.writeheader()
                 writer.writerows(actuals)
             os.replace(ACTUALS.with_suffix('.csv.tmp'), ACTUALS)

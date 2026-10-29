@@ -1,268 +1,270 @@
 # Ranked by weekly lock-in surplus under league scoring; rebuild_board.py --write.
-# V = expected locked weekly score above a healthy 26.9/game replacement (one game kept per week).
+# V = expected locked weekly score above a healthy 26.8/game replacement (one game kept per week).
 # T = two-point value tier. ECR = ESPN expert consensus (rank semantics unverified). Season FP are reference only.
 # Use Sleeper positions and roster needs WITHIN tiers; no fixed center premium.
-Nikola Jokic  # T1 | V+46.9/wk | 73.9/g | ECR 1 | 75 GP | season 5542 FP | last 75.4 (65)
-Giannis Antetokounmpo  # T2 | V+38.9/wk | 66.6/g | cal 66.2/g | ECR 5 | 73 GP | season 4859 FP | last 58.2 (36)
-Luka Doncic  # T3 | V+36.9/wk | 63.7/g | ECR 3 | 74 GP | season 4712 FP | last 67.4 (64)
-Shai Gilgeous-Alexander  # T3 | V+36.6/wk | 62.5/g | cal 62.4/g | ECR 4 | 77 GP | season 4811 FP | last 62.6 (68)
-Victor Wembanyama  # T4 | V+33.6/wk | 60.3/g | cal 60.7/g | ECR 2 | 73 GP | season 4401 FP | last 60.7 (64)
-Cade Cunningham  # T5 | V+27.6/wk | 54.2/g | ECR 6 | 74 GP | season 4010 FP | last 54.2 (64)
-Jalen Johnson  # T5 | V+26.3/wk | 52.7/g | ECR 10 | 75 GP | season 3954 FP | last 55.2 (72)
-Anthony Edwards  # T6 | V+25.6/wk | 51.7/g | cal 51.9/g | ECR 7 | 75 GP | season 3880 FP | last 50.6 (61)
-Jayson Tatum  # T6 | V+25.0/wk | 52.2/g | cal 52.0/g | ECR 53 | 72 GP | season 3762 FP | last 49.7 (16) | active; preseason verified Oct 19; ECR range 6-119 | 2nd season post-Achilles: -5%/g | ECR disagreement: reduced weight | ECR review: FIXED recovery discount; returned last season; broad expert range is not a firm forecast
-Karl-Anthony Towns  # T6 | V+24.5/wk | 51.0/g | cal 51.1/g | ECR 18 | 74 GP | season 3777 FP | last 48.0 (75)
-Donovan Mitchell  # T6 | V+23.9/wk | 50.2/g | ECR 11 | 75 GP | season 3765 FP | last 52.0 (70)
-Tyrese Maxey  # T7 | V+23.6/wk | 49.9/g | ECR 8 | 75 GP | season 3740 FP | last 55.7 (70)
-Domantas Sabonis  # T7 | V+23.2/wk | 49.8/g | ECR 26 | 74 GP | season 3683 FP | last 41.5 (19)
-Cooper Flagg  # T7 | V+23.2/wk | 49.7/g | cal 49.5/g | ECR 15 | 75 GP | season 3725 FP | last 43.7 (70)
-Anthony Davis  # T7 | V+23.0/wk | 51.0/g | cal 50.5/g | ECR 16 | 70 GP | season 3568 FP | last 48.1 (20)
-Paolo Banchero  # T7 | V+22.6/wk | 47.6/g | cal 49.1/g | ECR 12 | 74 GP | season 3525 FP | last 46.4 (72)
-Devin Booker  # T7 | V+22.4/wk | 48.5/g | cal 48.7/g | ECR 22 | 75 GP | season 3634 FP | last 46.8 (64)
-Jalen Brunson  # T7 | V+21.8/wk | 47.6/g | cal 48.1/g | ECR 14 | 75 GP | season 3570 FP | last 47.2 (74)
-Alperen Sengun  # T8 | V+21.5/wk | 46.7/g | cal 47.9/g | ECR 9 | 75 GP | season 3503 FP | last 48.7 (72)
-James Harden  # T8 | V+21.5/wk | 47.6/g | ECR 27 | 76 GP | season 3620 FP | last 50.4 (70)
-Kevin Durant  # T8 | V+21.4/wk | 47.7/g | ECR 19 | 75 GP | season 3576 FP | last 49.3 (78)
-Deni Avdija  # T8 | V+21.1/wk | 47.5/g | ECR 34 | 75 GP | season 3560 FP | last 50.2 (66)
-LaMelo Ball  # T8 | V+20.3/wk | 47.5/g | cal 47.1/g | ECR 23 | 73 GP | season 3467 FP | last 41.8 (72)
-Josh Giddey  # T8 | V+20.3/wk | 46.8/g | cal 47.0/g | ECR 17 | 73 GP | season 3417 FP | last 46.8 (54)
-Joel Embiid  # T8 | V+20.0/wk | 51.6/g | cal 50.8/g | ECR 44 | 59 GP | season 3042 FP | last 52.2 (38) | active in preseason; recurring absence risk
-Scottie Barnes  # T8 | V+20.0/wk | 45.9/g | cal 46.4/g | ECR 13 | 75 GP | season 3446 FP | last 46.6 (80)
-Bam Adebayo  # T8 | V+20.0/wk | 45.3/g | cal 46.2/g | ECR 24 | 76 GP | season 3445 FP | last 46.0 (73) | groin DTD; practiced Oct 19; opener not confirmed
-Jamal Murray  # T8 | V+20.0/wk | 46.5/g | ECR 21 | 74 GP | season 3440 FP | last 51.6 (75)
-Jalen Duren  # T8 | V+19.6/wk | 46.0/g | ECR 36 | 75 GP | season 3450 FP | last 46.1 (70)
-Stephen Curry  # T9 | V+19.3/wk | 46.2/g | cal 46.1/g | ECR 30 | 73 GP | season 3370 FP | last 47.0 (43) | ankle tweak; Kerr says fine Oct 19; recheck opener
-Evan Mobley  # T9 | V+19.3/wk | 46.8/g | cal 46.3/g | ECR 31 | 72 GP | season 3372 FP | last 44.3 (65)
-LeBron James  # T9 | V+19.2/wk | 48.5/g | cal 48.3/g | ECR 28 | 61 GP | season 2958 FP | last 47.2 (60) | PHI to rest b2bs, age 42 | ECR disagreement: reduced weight
-Austin Reaves  # T9 | V+18.9/wk | 45.6/g | cal 45.7/g | ECR 32 | 73 GP | season 3330 FP | last 46.4 (51)
-Jaylen Brown  # T9 | V+18.8/wk | 44.7/g | cal 45.2/g | ECR 29 | 75 GP | season 3351 FP | last 51.1 (71)
-Kawhi Leonard  # T9 | V+18.7/wk | 49.2/g | cal 48.2/g | ECR 35 | 60 GP | season 2952 FP | last 54.3 (65) | load mgmt plan (TOR)
-Pascal Siakam  # T9 | V+18.4/wk | 44.6/g | cal 44.5/g | ECR 33 | 76 GP | season 3387 FP | last 44.3 (62)
-Trae Young  # T9 | V+18.2/wk | 44.2/g | cal 44.6/g | ECR 25 | 75 GP | season 3315 FP | last 39.1 (15) | ECR disagreement: reduced weight
-Amen Thompson  # T9 | V+17.3/wk | 42.3/g | cal 43.2/g | ECR 20 | 78 GP | season 3298 FP | last 45.0 (79)
-Zion Williamson  # T10 | V+16.9/wk | 44.4/g | ECR 41 | 69 GP | season 3067 FP | last 41.6 (62)
-Franz Wagner  # T10 | V+16.7/wk | 44.0/g | cal 43.6/g | ECR 47 | 72 GP | season 3169 FP | last 39.3 (34) | shoulder GTD, recheck
-Jalen Williams  # T10 | V+15.8/wk | 42.5/g | cal 42.4/g | ECR 38 | 74 GP | season 3144 FP | last 37.9 (33)
-Tyrese Haliburton  # T10 | V+15.6/wk | 44.3/g | cal 44.2/g | ECR 69 | 65 GP | season 2882 FP | last n/a | active in preseason; recovery risk; ECR range 11-125 | 1st season post-Achilles: -10%/g, 65 GP | ECR disagreement: reduced weight | ECR review: FIXED Achilles production/availability; recovery remains a risk
-Kyrie Irving  # T10 | V+15.3/wk | 44.1/g | cal 43.7/g | ECR 80 | 65 GP | season 2865 FP | last n/a | returned Oct 11; post-ACL workload risk | 1st season post-ACL: -5%/g, 65 GP | ECR disagreement: reduced weight | ECR review: FIXED ACL production/availability; recovery remains a risk
-Ivica Zubac  # T10 | V+15.0/wk | 41.9/g | cal 41.6/g | ECR 60 | 74 GP | season 3100 FP | last 37.0 (48)
-Lauri Markkanen  # T11 | V+14.7/wk | 41.1/g | cal 41.4/g | ECR 48 | 74 GP | season 3043 FP | last 48.7 (42)
-Julius Randle  # T11 | V+14.4/wk | 39.5/g | cal 40.9/g | ECR 40 | 75 GP | season 2963 FP | last 43.4 (79)
-Jarrett Allen  # T11 | V+14.0/wk | 40.6/g | cal 40.5/g | ECR 62 | 75 GP | season 3042 FP | last 38.1 (56)
-Trey Murphy III  # T11 | V+13.6/wk | 39.9/g | cal 40.5/g | ECR 37 | 73 GP | season 2916 FP | last 44.0 (66)
-Tyler Herro  # T11 | V+13.4/wk | 40.5/g | cal 40.3/g | ECR 58 | 73 GP | season 2954 FP | last 39.5 (33)
-Desmond Bane  # T11 | V+13.4/wk | 39.8/g | cal 39.9/g | ECR 46 | 75 GP | season 2988 FP | last 39.1 (82)
-Chet Holmgren  # T11 | V+13.1/wk | 39.4/g | cal 40.1/g | ECR 39 | 72 GP | season 2839 FP | last 42.0 (69)
-Keyonte George  # T11 | V+13.0/wk | 39.5/g | cal 39.8/g | ECR 55 | 73 GP | season 2886 FP | last 45.1 (54)
-Cameron Boozer  # T12 | V+12.4/wk | 39.2/g | cal 39.0/g | ECR 105 | 75 GP | season 2937 FP | last n/a | ECR disagreement: reduced weight | ECR review: RISK rookie projection; major role supported, production unproven; prefer proven peer within tier
-Caleb Wilson  # T12 | V+12.4/wk | 39.4/g | cal 39.0/g | ECR 109 | 75 GP | season 2954 FP | last n/a | ECR disagreement: reduced weight | ECR review: RISK rookie projection; expected starter, production unproven; prefer proven peer within tier
-Stephon Castle  # T12 | V+12.4/wk | 38.5/g | cal 38.9/g | ECR 49 | 75 GP | season 2890 FP | last 39.8 (68)
-Walker Kessler  # T12 | V+12.3/wk | 38.9/g | cal 39.3/g | ECR 43 | 72 GP | season 2803 FP | last 44.0 (5)
-Brandon Miller  # T12 | V+12.0/wk | 38.2/g | cal 38.9/g | ECR 42 | 73 GP | season 2792 FP | last 37.2 (65)
-Michael Porter Jr.  # T12 | V+12.0/wk | 38.4/g | cal 38.7/g | ECR 57 | 74 GP | season 2840 FP | last 44.9 (52)
-De'Aaron Fox  # T12 | V+11.8/wk | 38.3/g | cal 38.4/g | ECR 52 | 75 GP | season 2875 FP | last 39.1 (72)
-Darius Garland  # T12 | V+11.5/wk | 38.4/g | cal 38.3/g | ECR 54 | 74 GP | season 2842 FP | last 36.5 (45)
-Rudy Gobert  # T12 | V+11.5/wk | 37.9/g | cal 38.1/g | ECR 67 | 75 GP | season 2846 FP | last 37.2 (76)
-Derrick White  # T12 | V+11.4/wk | 37.6/g | ECR 51 | 78 GP | season 2935 FP | last 38.4 (77)
-AJ Dybantsa  # T12 | V+10.9/wk | 38.4/g | cal 38.0/g | ECR 129 | 72 GP | season 2765 FP | last n/a | ankle DTD | ECR disagreement: reduced weight | ECR review: RISK rookie projection and ankle; already 72 GP; prefer proven peer within tier
-RJ Barrett  # T13 | V+10.3/wk | 37.3/g | cal 37.4/g | ECR 76 | 72 GP | season 2684 FP | last 36.5 (57)
-Jaren Jackson Jr.  # T13 | V+10.3/wk | 37.2/g | cal 37.6/g | ECR 45 | 70 GP | season 2605 FP | last 37.4 (48) | ECR review: KEEP conservative source projection: 37.2/g vs last 37.4; ECR alone does not prove improvement
-Norman Powell  # T13 | V+10.2/wk | 37.1/g | cal 37.0/g | ECR 83 | 74 GP | season 2742 FP | last 36.8 (58)
-Damian Lillard  # T13 | V+10.0/wk | 38.8/g | cal 38.6/g | ECR 103 | 62 GP | season 2406 FP | last n/a | 1st season post-Achilles, age 36: -10%/g, 62 GP | ECR disagreement: reduced weight | ECR review: FIXED Achilles production/availability; age and recovery remain risks
-Coby White  # T13 | V+9.9/wk | 37.6/g | cal 37.9/g | ECR 66 | 66 GP | season 2482 FP | last 30.8 (50) | calf, no timeline
-Dejounte Murray  # T13 | V+9.9/wk | 37.7/g | cal 37.9/g | ECR 56 | 66 GP | season 2488 FP | last 38.7 (14) | toe; 45 GP in 2 yrs
-Paul George  # T13 | V+9.7/wk | 38.5/g | cal 38.2/g | ECR 78 | 63 GP | season 2427 FP | last 37.3 (37)
-Josh Hart  # T13 | V+9.7/wk | 36.9/g | ECR 72 | 71 GP | season 2620 FP | last 35.0 (66) | ankle, misses opener
-Darius Acuff Jr.  # T13 | V+9.7/wk | 36.4/g | cal 36.2/g | ECR 122 | 76 GP | season 2770 FP | last n/a | - TO > AST in preseason | ECR disagreement: reduced weight | ECR review: RISK rookie efficiency/turnovers; lead role supported; prefer proven peer within tier
-Ja Morant  # T13 | V+9.6/wk | 37.4/g | cal 37.7/g | ECR 50 | 65 GP | season 2433 FP | last 39.5 (20) | likely 6th man behind Lillard | ECR review: KEEP existing bench-role and 65-GP cuts; not a healthy starting-role projection
-Onyeka Okongwu  # T13 | V+9.6/wk | 35.9/g | cal 36.3/g | ECR 63 | 75 GP | season 2696 FP | last 37.9 (74)
-Miles Bridges  # T13 | V+9.6/wk | 36.1/g | cal 36.3/g | ECR 74 | 75 GP | season 2710 FP | last 34.8 (77)
-Immanuel Quickley  # T13 | V+9.3/wk | 36.6/g | cal 36.4/g | ECR 77 | 72 GP | season 2638 FP | last 37.5 (70)
-Kon Knueppel  # T13 | V+9.3/wk | 36.5/g | cal 36.4/g | ECR 89 | 72 GP | season 2628 FP | last 36.3 (81) | hamstring, no timeline | ECR disagreement: reduced weight
-Dyson Daniels  # T13 | V+8.8/wk | 35.2/g | ECR 59 | 77 GP | season 2708 FP | last 37.4 (76)
-Ty Jerome  # T13 | V+8.7/wk | 36.1/g | cal 35.9/g | ECR 106 | 71 GP | season 2565 FP | last 40.2 (15) | ECR disagreement: reduced weight | ECR review: RISK source projects expanded production; last 40.2/g was only 15 games
-OG Anunoby  # T13 | V+8.6/wk | 35.7/g | cal 35.5/g | ECR 79 | 73 GP | season 2605 FP | last 35.0 (67)
-Donovan Clingan  # T14 | V+8.0/wk | 33.9/g | cal 34.7/g | ECR 61 | 76 GP | season 2579 FP | last 39.5 (77) | ECR review: RISK source regression: 33.9/g vs last 39.5; ECR favors him, consider within tier
-VJ Edgecombe  # T14 | V+8.0/wk | 34.9/g | cal 34.8/g | ECR 91 | 75 GP | season 2621 FP | last 35.9 (75)
-John Collins  # T14 | V+7.8/wk | 35.1/g | cal 34.8/g | ECR 108 | 73 GP | season 2560 FP | last 28.2 (69) | ECR disagreement: reduced weight | ECR review: RISK source improvement: 35.1/g vs last 28.2; do not assume breakout is established
-Jalen Green  # T14 | V+7.8/wk | 34.5/g | cal 34.7/g | ECR 73 | 74 GP | season 2552 FP | last 28.8 (32)
-Alex Sarr  # T14 | V+7.8/wk | 34.5/g | cal 34.9/g | ECR 64 | 72 GP | season 2483 FP | last 38.1 (48) | ECR review: RISK source regression: 34.5/g vs last 38.1; ECR favors him, consider within tier
-CJ McCollum  # T14 | V+7.5/wk | 34.2/g | ECR 85 | 76 GP | season 2596 FP | last 33.9 (76)
-Brandon Ingram  # T14 | V+7.4/wk | 40.4/g | cal 40.2/g | ECR 75 | 55 GP | season 2222 FP | last 40.3 (77) | heel surgery/partial Achilles tear; delayed debut; no confirmed return timetable | ECR disagreement: reduced weight | OUT uses bench, not IR
-Payton Pritchard  # T14 | V+7.2/wk | 33.5/g | cal 34.0/g | ECR 70 | 75 GP | season 2515 FP | last 35.5 (79)
-DeMar DeRozan  # T14 | V+7.1/wk | 33.6/g | cal 33.7/g | ECR 94 | 77 GP | season 2586 FP | last 36.5 (77) | - bench in preseason | ECR disagreement: reduced weight
-Zach LaVine  # T14 | V+7.0/wk | 34.2/g | cal 34.4/g | ECR 87 | 70 GP | season 2395 FP | last 31.4 (39)
-Naz Reid  # T14 | V+7.0/wk | 33.0/g | cal 33.6/g | ECR 71 | 77 GP | season 2538 FP | last 31.1 (77) | ECR review: KEEP source 33.0/g near last 31.1; ECR optimism alone is not a role change
-Darryn Peterson  # T14 | V+6.8/wk | 33.8/g | cal 33.5/g | ECR 134 | 76 GP | season 2569 FP | last n/a | + starting | ECR disagreement: reduced weight | ECR review: RISK rookie production; starting role noted, no evidence for a precise additional cut
-Kel'el Ware  # T14 | V+6.6/wk | 33.0/g | cal 33.5/g | ECR 82 | 75 GP | season 2477 FP | last 31.5 (77)
-Jakob Poeltl  # T14 | V+6.5/wk | 33.8/g | cal 33.6/g | ECR 101 | 72 GP | season 2434 FP | last 30.0 (46)
-Dylan Harper  # T14 | V+6.4/wk | 33.3/g | cal 33.2/g | ECR 104 | 75 GP | season 2499 FP | last 26.6 (69) | + starting opener | ECR disagreement: reduced weight
-Isaiah Hartenstein  # T14 | V+6.1/wk | 33.1/g | cal 33.4/g | ECR 93 | 71 GP | season 2351 FP | last 33.5 (47) | - timeshare w/ Mara?
-Mikal Bridges  # T14 | V+6.1/wk | 32.5/g | ECR 86 | 80 GP | season 2602 FP | last 33.3 (82)
-Zach Edey  # T15 | V+6.0/wk | 32.2/g | cal 33.4/g | ECR 65 | 70 GP | season 2251 FP | last 38.0 (11) | ECR review: KEEP conservative source minutes and availability; last 38.0/g was only 11 games
-Aaron Gordon  # T15 | V+5.7/wk | 32.8/g | cal 32.9/g | ECR 111 | 72 GP | season 2362 FP | last 34.4 (36)
-Jimmy Butler III  # T15 | V+5.6/wk | 42.9/g | cal 42.4/g | ECR 117 | 44 GP | season 1886 FP | last 45.6 (38) | ECR disagreement: reduced weight | OUT uses bench, not IR
-Brandin Podziemski  # T15 | V+5.3/wk | 31.6/g | cal 31.9/g | ECR 100 | 79 GP | season 2494 FP | last 31.5 (82) | + usage up (GSW injuries); back Q
-Andrew Wiggins  # T15 | V+5.2/wk | 32.3/g | ECR 92 | 73 GP | season 2358 FP | last 32.9 (68)
-Nickeil Alexander-Walker  # T15 | V+5.1/wk | 31.5/g | cal 31.7/g | ECR 81 | 79 GP | season 2489 FP | last 38.8 (78) | ECR disagreement: reduced weight | ECR review: RISK source regression: 31.5/g vs last 38.8; ECR favors him, consider within tier
-Andrew Nembhard  # T15 | V+5.1/wk | 32.0/g | ECR 102 | 75 GP | season 2403 FP | last 37.2 (57) | ECR disagreement: reduced weight
-Matas Buzelis  # T15 | V+5.1/wk | 31.2/g | cal 31.9/g | ECR 68 | 76 GP | season 2368 FP | last 33.5 (77) | ECR review: RISK source 31.2/g below last 33.5 despite starting role; consider upside within tier
-Jaden McDaniels  # T15 | V+4.8/wk | 31.2/g | cal 31.6/g | ECR 88 | 76 GP | season 2374 FP | last 31.4 (73)
-Nic Claxton  # T15 | V+4.5/wk | 33.2/g | ECR 96 | 66 GP | season 2191 FP | last 33.1 (69) | hamstring; Oct 19 re-eval: another ~2 weeks; no confirmed return; already 66 GP | OUT uses bench, not IR
-Ayo Dosunmu  # T16 | V+3.8/wk | 31.2/g | cal 30.8/g | ECR 115 | 75 GP | season 2338 FP | last 30.7 (69) | - bench all preseason
-Derik Queen  # T16 | V+3.8/wk | 30.5/g | cal 30.6/g | ECR 107 | 77 GP | season 2345 FP | last 31.8 (81) | ECR disagreement: reduced weight
-Jabari Smith Jr.  # T16 | V+3.8/wk | 30.1/g | cal 30.7/g | ECR 99 | 76 GP | season 2290 FP | last 33.8 (77)
-Tobias Harris  # T16 | V+3.6/wk | 31.7/g | cal 31.4/g | ECR 135 | 72 GP | season 2282 FP | last 29.7 (63) | calf, misses opener | ECR review: KEEP modest source 31.7/g vs last 29.7; calf already priced at 72 GP | OUT uses bench, not IR
-Cedric Coward  # T16 | V+3.4/wk | 30.5/g | ECR 127 | 74 GP | season 2259 FP | last 29.9 (62) | ECR disagreement: reduced weight
-P.J. Washington Jr.  # T16 | V+3.1/wk | 30.4/g | cal 30.5/g | ECR 113 | 71 GP | season 2158 FP | last 31.4 (56)
-Jalen Suggs  # T16 | V+3.0/wk | 30.2/g | cal 30.5/g | ECR 90 | 70 GP | season 2117 FP | last 33.5 (57) | ECR review: KEEP conservative source and 70 GP; ECR alone does not prove higher production
-Keegan Murray  # T16 | V+3.0/wk | 29.5/g | cal 30.0/g | ECR 95 | 75 GP | season 2212 FP | last 30.7 (23) | ECR review: KEEP source 29.5/g near last 30.7; no verified role change requiring promotion
-Ausar Thompson  # T16 | V+2.9/wk | 29.5/g | cal 30.0/g | ECR 84 | 74 GP | season 2183 FP | last 29.9 (73) | ECR review: KEEP source 29.5/g near last 29.9; scoring adds little over ESPN for his profile
-Fred VanVleet  # T16 | V+2.8/wk | 30.9/g | cal 30.7/g | ECR 136 | 65 GP | season 2009 FP | last n/a | post-ACL workload judgment: -5%/g, 65 GP; restriction possible | ECR disagreement: reduced weight
-Cameron Johnson  # T16 | V+2.6/wk | 29.9/g | cal 29.8/g | ECR 137 | 73 GP | season 2185 FP | last 26.5 (54) | ECR disagreement: reduced weight
-Jaime Jaquez Jr.  # T16 | V+2.6/wk | 29.3/g | cal 29.6/g | ECR 112 | 76 GP | season 2224 FP | last 33.3 (75) | + moving into starting 5
-Jonathan Kuminga  # T16 | V+1.8/wk | 29.0/g | cal 29.2/g | ECR 124 | 72 GP | season 2087 FP | last 25.6 (36)
-Keaton Wagler  # T16 | V+1.8/wk | 29.4/g | cal 29.0/g | ECR 195 | 74 GP | season 2175 FP | last n/a | ECR disagreement: reduced weight | ECR review: RISK rookie minutes in crowded rotation; speculative bench pick
-Quentin Grimes  # T17 | V+1.6/wk | 28.6/g | cal 28.7/g | ECR 125 | 76 GP | season 2171 FP | last 27.8 (75)
-Dillon Brooks  # T17 | V+1.6/wk | 28.9/g | cal 28.8/g | ECR 132 | 74 GP | season 2140 FP | last 31.0 (56)
-Mikel Brown Jr.  # T17 | V+1.4/wk | 28.9/g | cal 28.6/g | ECR 185 | 75 GP | season 2165 FP | last n/a | - ankle, bench + min limit | MINUTES LIMIT: season projection assumes eventual full role | ECR disagreement: reduced weight | ECR review: RISK minutes restriction and bench role; full-season role unverified; prefer active cover
-Ryan Rollins  # T17 | V+1.4/wk | 28.6/g | ECR 97 | 74 GP | season 2114 FP | last 37.9 (74) | + starting PG (last 37.9/g) | ECR disagreement: reduced weight | ECR review: RISK source 28.6/g below last 37.9 despite starting role; consider upside within tier
-Peyton Watson  # T17 | V+1.3/wk | 28.7/g | cal 28.5/g | ECR 146 | 75 GP | season 2149 FP | last 30.8 (54) | + likely starter | ECR disagreement: reduced weight | ECR review: KEEP source 28.7/g below last 30.8 despite likely starting role; late bench upside
-Kristaps Porzingis  # T17 | V+1.3/wk | 32.9/g | cal 32.8/g | ECR 118 | 50 GP | season 1645 FP | last 35.3 (32) | OUT illness; prior December return estimate unverified | ECR disagreement: reduced weight | OUT uses bench, not IR
-Myles Turner  # T17 | V+1.2/wk | 28.0/g | cal 28.4/g | ECR 98 | 75 GP | season 2103 FP | last 28.3 (71) | ECR review: KEEP source 28.0/g near last 28.3; ECR alone does not prove improvement
-Collin Sexton  # T17 | V+1.2/wk | 28.6/g | cal 28.4/g | ECR 174 | 75 GP | season 2143 FP | last 28.2 (68) | ECR disagreement: reduced weight | ECR review: KEEP source 28.6/g near last 28.2; modest efficiency premium, not a breakout forecast
-Nikola Vucevic  # T17 | V+1.1/wk | 28.2/g | cal 28.3/g | ECR 119 | 75 GP | season 2117 FP | last 37.1 (64) | ECR disagreement: reduced weight
-Jusuf Nurkic  # T17 | V+0.9/wk | 29.1/g | cal 29.3/g | ECR 110 | 68 GP | season 1976 FP | last 36.5 (41) | ECR disagreement: reduced weight | ECR review: KEEP conservative 68 GP and 29.1/g; prior 36.5/g was 41 games | OUT uses bench, not IR
-Draymond Green  # T17 | V+0.8/wk | 28.3/g | cal 28.2/g | ECR 133 | 72 GP | season 2035 FP | last 26.9 (68) | ECR disagreement: reduced weight
-Kyshawn George  # T17 | V+0.6/wk | 28.0/g | ECR 126 | 72 GP | season 2016 FP | last 33.4 (48)
-Dereck Lively II  # T17 | V+0.6/wk | 29.2/g | cal 28.9/g | ECR 180 | 55 GP | season 1604 FP | last 20.1 (7) | - foot, not cleared | foot recovery: 55 GP judgment; return unconfirmed Oct 19 | ECR disagreement: reduced weight | ECR review: FIXED foot availability: 55 GP; uncertain return, prefer active cover
-Wendell Carter Jr.  # T17 | V+0.5/wk | 27.7/g | ECR 147 | 75 GP | season 2076 FP | last 30.7 (78)
-Christian Braun  # T17 | V+0.2/wk | 27.7/g | cal 27.6/g | ECR 152 | 72 GP | season 1994 FP | last 27.8 (44) | ECR disagreement: reduced weight
-Neemias Queta  # T17 | V+0.0/wk | 27.2/g | ECR 130 | 75 GP | season 2037 FP | last 32.3 (76) | ECR disagreement: reduced weight
-Saddiq Bey  # T17 | V+0.0/wk | 27.1/g | ECR 153 | 75 GP | season 2030 FP | last 35.4 (72) | ECR disagreement: reduced weight
-Devin Vassell  # T17 | V+0.0/wk | 26.6/g | cal 26.8/g | ECR 123 | 74 GP | season 1971 FP | last 28.6 (67) | ECR disagreement: reduced weight
-Toumani Camara  # T17 | V+0.0/wk | 25.8/g | cal 26.2/g | ECR 120 | 77 GP | season 1985 FP | last 28.3 (82) | ECR review: KEEP source 25.8/g below replacement; no automatic promotion from generic ECR
-Bobby Portis Jr.  # T17 | V+0.0/wk | 26.9/g | ECR 145 | 72 GP | season 1938 FP | last 28.7 (67)
-Day'Ron Sharpe  # T17 | V+0.0/wk | 26.4/g | cal 26.5/g | ECR 128 | 74 GP | season 1951 FP | last 26.0 (62) | ECR disagreement: reduced weight
-Jerami Grant  # T17 | V+0.0/wk | 26.2/g | cal 26.4/g | ECR 141 | 73 GP | season 1910 FP | last 31.9 (57)
-Bennedict Mathurin  # T17 | V+0.0/wk | 25.9/g | cal 26.4/g | ECR 121 | 73 GP | season 1891 FP | last 32.9 (54) | ECR disagreement: reduced weight | ECR review: RISK source regression: 25.9/g vs last 32.9; strong custom premium partly offsets it
-Jeremiah Fears  # T17 | V+0.0/wk | 25.3/g | ECR 151 | 78 GP | season 1976 FP | last 27.5 (82) | ECR disagreement: reduced weight
-Egor Demin  # T17 | V+0.0/wk | 25.8/g | ECR 142 | 75 GP | season 1933 FP | last 22.4 (52)
-Mitchell Robinson  # T17 | V+0.0/wk | 27.2/g | cal 26.7/g | ECR 207 | 70 GP | season 1903 FP | last 25.9 (60) | ECR disagreement: reduced weight
-Daniel Gafford  # T17 | V+0.0/wk | 26.1/g | cal 26.0/g | ECR 160 | 73 GP | season 1907 FP | last 28.1 (55) | + starting while Lively out
-Moussa Diabate  # T17 | V+0.0/wk | 25.6/g | ECR 166 | 74 GP | season 1893 FP | last 29.3 (73) | + starting C ~30 min | ECR disagreement: reduced weight
-Rui Hachimura  # T17 | V+0.0/wk | 25.2/g | cal 25.3/g | ECR 138 | 75 GP | season 1888 FP | last 21.3 (68) | + minutes w/ Ingram, Strus out | ECR disagreement: reduced weight
-Jrue Holiday  # T17 | V+0.0/wk | 25.1/g | cal 25.5/g | ECR 116 | 73 GP | season 1832 FP | last 35.2 (53) | ECR review: KEEP conservative source role: 25.1/g vs last 35.2; upside requires more minutes
-Ace Bailey  # T17 | V+0.0/wk | 25.0/g | cal 25.1/g | ECR 140 | 75 GP | season 1876 FP | last 25.6 (72)
-Anthony Black  # T17 | V+0.0/wk | 25.2/g | ECR 144 | 74 GP | season 1865 FP | last 31.1 (64)
-Davion Mitchell  # T17 | V+0.0/wk | 25.1/g | ECR 139 | 75 GP | season 1879 FP | last 27.8 (70) | ECR disagreement: reduced weight
-De'Andre Hunter  # T17 | V+0.0/wk | 25.6/g | cal 25.5/g | ECR 178 | 72 GP | season 1842 FP | last 24.6 (45)
-Kingston Flemings  # T17 | V+0.0/wk | 26.8/g | cal 25.0/g | ECR 277 | 75 GP | season 2009 FP | last n/a
-Yves Missi  # T17 | V+0.0/wk | 25.4/g | cal 25.2/g | ECR 187 | 73 GP | season 1856 FP | last 20.5 (66) | ECR disagreement: reduced weight
-Collin Gillespie  # T17 | V+0.0/wk | 24.7/g | ECR 171 | 76 GP | season 1879 FP | last 30.4 (80) | ECR disagreement: reduced weight
-Aaron Nesmith  # T17 | V+0.0/wk | 25.8/g | cal 25.5/g | ECR 175 | 71 GP | season 1829 FP | last 25.7 (45)
-Morez Johnson Jr.  # T17 | V+0.0/wk | 25.1/g | cal 24.7/g | ECR 233 | 75 GP | season 1882 FP | last n/a | ECR disagreement: reduced weight
-Bradley Beal  # T17 | V+0.0/wk | 26.5/g | cal 26.4/g | ECR 188 | 65 GP | season 1725 FP | last 10.9 (6) | ECR disagreement: reduced weight | OUT uses bench, not IR
-Yaxel Lendeborg  # T17 | V+0.0/wk | 24.6/g | cal 24.5/g | ECR 176 | 75 GP | season 1843 FP | last n/a | ECR disagreement: reduced weight
-Kyle Kuzma  # T17 | V+0.0/wk | 24.8/g | ECR 177 | 73 GP | season 1810 FP | last 26.8 (69) | ECR disagreement: reduced weight
-Deandre Ayton  # T17 | V+0.0/wk | 25.0/g | ECR 150 | 71 GP | season 1774 FP | last 31.2 (72) | - Sarr back | ECR disagreement: reduced weight
-Malik Monk  # T17 | V+0.0/wk | 24.7/g | ECR 164 | 73 GP | season 1805 FP | last 23.0 (62) | ECR disagreement: reduced weight
-Kyle Filipowski  # T17 | V+0.0/wk | 23.9/g | ECR 184 | 76 GP | season 1813 FP | last 30.0 (77)
-Tre Jones  # T17 | V+0.0/wk | 24.1/g | cal 24.3/g | ECR 148 | 73 GP | season 1760 FP | last 34.0 (65)
-Santi Aldama  # T17 | V+0.0/wk | 24.4/g | cal 24.5/g | ECR 163 | 72 GP | season 1758 FP | last 33.2 (43) | ECR disagreement: reduced weight
-Isaiah Collier  # T17 | V+0.0/wk | 24.0/g | cal 24.1/g | ECR 154 | 73 GP | season 1749 FP | last 30.5 (59)
-Naji Marshall  # T17 | V+0.0/wk | 23.8/g | ECR 183 | 74 GP | season 1761 FP | last 31.9 (74) | ECR disagreement: reduced weight
-Kelly Oubre Jr.  # T17 | V+0.0/wk | 23.8/g | ECR 168 | 73 GP | season 1735 FP | last 29.2 (50) | ECR disagreement: reduced weight
-Jaylon Tyson  # T17 | V+0.0/wk | 24.1/g | cal 23.9/g | ECR 193 | 70 GP | season 1684 FP | last 27.9 (66) | ECR disagreement: reduced weight
-Reed Sheppard  # T17 | V+0.0/wk | 22.2/g | cal 22.8/g | ECR 131 | 77 GP | season 1707 FP | last 29.1 (82) | ECR review: RISK source only 21.4 minutes/g; ECR favors larger role, speculative upside
-Grayson Allen  # T17 | V+0.0/wk | 23.7/g | ECR 172 | 71 GP | season 1684 FP | last 32.5 (51)
-Scotty Pippen Jr.  # T17 | V+0.0/wk | 23.7/g | ECR 156 | 71 GP | season 1681 FP | last 25.8 (10) | ECR disagreement: reduced weight
-Keldon Johnson  # T17 | V+0.0/wk | 22.3/g | cal 22.6/g | ECR 186 | 78 GP | season 1743 FP | last 26.9 (82)
-Oso Ighodaro  # T17 | V+0.0/wk | 22.5/g | cal 22.3/g | ECR 212 | 79 GP | season 1774 FP | last 21.5 (82) | ECR disagreement: reduced weight
-Scoot Henderson  # T17 | V+0.0/wk | 23.0/g | cal 23.2/g | ECR 157 | 72 GP | season 1657 FP | last 26.2 (30) | ECR disagreement: reduced weight
-Cason Wallace  # T17 | V+0.0/wk | 22.4/g | ECR 149 | 77 GP | season 1721 FP | last 23.2 (77)
-Anfernee Simons  # T17 | V+0.0/wk | 22.9/g | cal 23.0/g | ECR 159 | 72 GP | season 1650 FP | last 24.5 (55) | ECR disagreement: reduced weight
-Duncan Robinson  # T17 | V+0.0/wk | 22.2/g | cal 22.1/g | ECR 209 | 77 GP | season 1708 FP | last 24.1 (77) | ECR disagreement: reduced weight
-Brook Lopez  # T17 | V+0.0/wk | 22.5/g | cal 22.3/g | ECR 194 | 75 GP | season 1689 FP | last 20.3 (75)
-Julian Champagnie  # T17 | V+0.0/wk | 21.4/g | cal 21.3/g | ECR 214 | 80 GP | season 1711 FP | last 27.0 (82) | ECR disagreement: reduced weight
-Danny Wolf  # T17 | V+0.0/wk | 22.0/g | ECR ? | 75 GP | season 1647 FP | last 21.6 (57)
-Tari Eason  # T17 | V+0.0/wk | 22.0/g | cal 22.3/g | ECR 143 | 72 GP | season 1584 FP | last 25.0 (60) | ECR disagreement: reduced weight
-Dennis Schroder  # T17 | V+0.0/wk | 21.6/g | cal 21.9/g | ECR 170 | 75 GP | season 1618 FP | last 24.8 (70)
-Jake LaRavia  # T17 | V+0.0/wk | 21.4/g | cal 21.3/g | ECR 211 | 78 GP | season 1671 FP | last 21.4 (82)
-Collin Murray-Boyles  # T17 | V+0.0/wk | 21.9/g | cal 22.0/g | ECR 158 | 72 GP | season 1578 FP | last 24.1 (57) | ECR disagreement: reduced weight
-Robert Williams III  # T17 | V+0.0/wk | 22.6/g | cal 22.3/g | ECR 220 | 69 GP | season 1562 FP | last 25.1 (59) | ECR disagreement: reduced weight
-Jalen Smith  # T17 | V+0.0/wk | 21.8/g | ECR 201 | 72 GP | season 1571 FP | last 26.0 (53) | ECR disagreement: reduced weight
-Bilal Coulibaly  # T17 | V+0.0/wk | 21.6/g | ECR 173 | 73 GP | season 1574 FP | last 27.6 (56) | ECR disagreement: reduced weight
-T.J. McConnell  # T17 | V+0.0/wk | 21.7/g | cal 21.5/g | ECR 203 | 74 GP | season 1606 FP | last 24.9 (56)
-De'Anthony Melton  # T17 | V+0.0/wk | 22.0/g | cal 21.6/g | ECR 247 | 72 GP | season 1585 FP | last 24.5 (49) | ECR disagreement: reduced weight
-Klay Thompson  # T17 | V+0.0/wk | 21.5/g | cal 21.2/g | ECR 197 | 74 GP | season 1590 FP | last 18.6 (69)
-Precious Achiuwa  # T17 | V+0.0/wk | 21.4/g | cal 21.0/g | ECR 239 | 75 GP | season 1607 FP | last 26.2 (73) | ECR disagreement: reduced weight
-Derrick Jones Jr.  # T17 | V+0.0/wk | 21.3/g | ECR ? | 73 GP | season 1554 FP | last 23.3 (50)
-Tim Hardaway Jr.  # T17 | V+0.0/wk | 20.4/g | ECR ? | 79 GP | season 1615 FP | last 24.1 (80)
-Herbert Jones  # T17 | V+0.0/wk | 21.2/g | cal 21.3/g | ECR 167 | 71 GP | season 1506 FP | last 22.4 (56)
-Al Horford  # T17 | V+0.0/wk | 22.7/g | cal 21.8/g | ECR 216 | 68 GP | season 1541 FP | last 24.6 (45)
-Ajay Mitchell  # T17 | V+0.0/wk | 21.4/g | cal 21.5/g | ECR 161 | 67 GP | season 1431 FP | last 29.6 (57) | ECR disagreement: reduced weight
-Jaylen Wells  # T17 | V+0.0/wk | 20.1/g | cal 20.2/g | ECR 199 | 75 GP | season 1509 FP | last 22.7 (69) | ECR disagreement: reduced weight
-Isaiah Jackson  # T17 | V+0.0/wk | 20.5/g | ECR 215 | 73 GP | season 1496 FP | last 19.8 (55) | + started over Lopez | ECR disagreement: reduced weight
-Obi Toppin  # T17 | V+0.0/wk | 21.4/g | cal 20.6/g | ECR 245 | 71 GP | season 1517 FP | last 24.9 (24)
-Royce O'Neale  # T17 | V+0.0/wk | 19.9/g | cal 19.7/g | ECR 221 | 77 GP | season 1531 FP | last 25.1 (78)
-Isaiah Stewart  # T17 | V+0.0/wk | 20.2/g | ECR 205 | 73 GP | season 1475 FP | last 24.6 (58) | OUT uses bench, not IR
-Kevin Huerter  # T17 | V+0.0/wk | 20.8/g | cal 19.9/g | ECR 229 | 74 GP | season 1540 FP | last 23.1 (69)
-Max Christie  # T17 | V+0.0/wk | 19.3/g | ECR ? | 78 GP | season 1508 FP | last 23.9 (77)
-Bub Carrington  # T17 | V+0.0/wk | 18.6/g | cal 19.0/g | ECR 190 | 80 GP | season 1489 FP | last 23.7 (82)
-Andre Drummond  # T17 | V+0.0/wk | 20.5/g | cal 20.4/g | ECR 232 | 69 GP | season 1417 FP | last 23.6 (63) | ECR disagreement: reduced weight
-Zaccharie Risacher  # T17 | V+0.0/wk | 20.0/g | cal 19.9/g | ECR 222 | 73 GP | season 1460 FP | last 20.3 (67)
-Max Strus  # T17 | V+0.0/wk | 20.1/g | ECR 204 | 70 GP | season 1404 FP | last 24.6 (12) | ECR disagreement: reduced weight | OUT uses bench, not IR
-Sam Merrill  # T17 | V+0.0/wk | 20.1/g | ECR ? | 70 GP | season 1404 FP | last 24.9 (52)
-Sam Hauser  # T17 | V+0.0/wk | 19.8/g | cal 18.9/g | ECR 270 | 78 GP | season 1543 FP | last 20.4 (78)
-Jaylin Williams  # T17 | V+0.0/wk | 19.5/g | cal 19.3/g | ECR 241 | 73 GP | season 1426 FP | last 22.5 (65) | ECR disagreement: reduced weight
-Nate Ament  # T17 | V+0.0/wk | 19.1/g | ECR ? | 74 GP | season 1415 FP | last n/a
-Luke Kennard  # T17 | V+0.0/wk | 18.7/g | ECR ? | 76 GP | season 1421 FP | last 19.1 (78)
-Isaiah Joe  # T17 | V+0.0/wk | 20.7/g | cal 18.7/g | ECR 261 | 75 GP | season 1554 FP | last 21.7 (71)
-Gui Santos  # T17 | V+0.0/wk | 18.8/g | cal 18.9/g | ECR 213 | 73 GP | season 1373 FP | last 21.6 (68)
-Marvin Bagley III  # T17 | V+0.0/wk | 20.0/g | cal 19.3/g | ECR 244 | 70 GP | season 1398 FP | last 26.2 (60)
-Jamal Shead  # T17 | V+0.0/wk | 18.7/g | cal 18.0/g | ECR 257 | 80 GP | season 1495 FP | last 20.2 (82) | ECR disagreement: reduced weight
-Jared McCain  # T17 | V+0.0/wk | 18.1/g | cal 18.6/g | ECR 191 | 74 GP | season 1338 FP | last 14.8 (67)
-Mark Williams  # T17 | V+0.0/wk | 29.3/g | cal 29.2/g | ECR 165 | 29 GP | season 851 FP | last 31.8 (60) | ECR disagreement: reduced weight | OUT uses bench, not IR
-Paul Reed  # T17 | V+0.0/wk | 18.3/g | cal 18.7/g | ECR 182 | 71 GP | season 1297 FP | last 21.6 (65)
-Brice Sensabaugh  # T17 | V+0.0/wk | 19.9/g | cal 17.9/g | ECR 265 | 75 GP | season 1496 FP | last 25.3 (75)
-Khris Middleton  # T17 | V+0.0/wk | 18.7/g | cal 18.8/g | ECR 219 | 66 GP | season 1234 FP | last 21.3 (63) | ECR disagreement: reduced weight
-Kris Dunn  # T17 | V+0.0/wk | 17.9/g | cal 17.1/g | ECR 253 | 77 GP | season 1376 FP | last 22.6 (82)
-Ryan Kalkbrenner  # T17 | V+0.0/wk | 19.3/g | cal 17.3/g | ECR 281 | 74 GP | season 1428 FP | last 23.5 (69)
-Baylor Scheierman  # T17 | V+0.0/wk | 17.1/g | ECR ? | 75 GP | season 1282 FP | last 15.5 (77)
-Jose Alvarado  # T17 | V+0.0/wk | 17.3/g | ECR ? | 72 GP | season 1243 FP | last 19.2 (69)
-Luke Kornet  # T17 | V+0.0/wk | 16.9/g | ECR ? | 75 GP | season 1268 FP | last 24.7 (68)
-Jordan Poole  # T17 | V+0.0/wk | 20.3/g | cal 20.5/g | ECR 155 | 47 GP | season 953 FP | last 23.1 (39) | ECR disagreement: reduced weight
-Aaron Wiggins  # T17 | V+0.0/wk | 16.6/g | cal 16.3/g | ECR 248 | 75 GP | season 1247 FP | last 19.3 (65)
-Goga Bitadze  # T17 | V+0.0/wk | 16.7/g | ECR ? | 72 GP | season 1200 FP | last 20.6 (64)
-Ryan Dunn  # T17 | V+0.0/wk | 16.1/g | ECR ? | 75 GP | season 1209 FP | last 16.9 (70)
-Ronald Holland II  # T17 | V+0.0/wk | 15.3/g | ECR ? | 79 GP | season 1206 FP | last n/a
-Khaman Maluach  # T17 | V+0.0/wk | 15.6/g | cal 15.9/g | ECR 169 | 72 GP | season 1120 FP | last 9.1 (46) | ECR disagreement: reduced weight
-Jarace Walker  # T17 | V+0.0/wk | 15.8/g | ECR ? | 71 GP | season 1122 FP | last 24.8 (76)
-Kevon Looney  # T17 | V+0.0/wk | 15.6/g | ECR ? | 72 GP | season 1126 FP | last 15.5 (21)
-Grant Williams  # T17 | V+0.0/wk | 15.7/g | ECR ? | 71 GP | season 1115 FP | last 18.3 (36)
-Kyle Anderson  # T17 | V+0.0/wk | 15.8/g | ECR ? | 70 GP | season 1106 FP | last 20.5 (43)
-Tristan da Silva  # T17 | V+0.0/wk | 15.5/g | cal 15.0/g | ECR 268 | 78 GP | season 1210 FP | last 21.6 (77)
-Jaxson Hayes  # T17 | V+0.0/wk | 15.3/g | ECR ? | 71 GP | season 1085 FP | last 20.1 (66)
-Noah Clowney  # T17 | V+0.0/wk | 16.1/g | cal 14.9/g | ECR 278 | 74 GP | season 1191 FP | last 24.4 (66)
-Tristan Vukcevic  # T17 | V+0.0/wk | 15.6/g | ECR ? | 67 GP | season 1044 FP | last 18.1 (49) | OUT uses bench, not IR
-Adem Bona  # T17 | V+0.0/wk | 14.1/g | ECR ? | 74 GP | season 1040 FP | last 15.8 (71)
-Patrick Williams  # T17 | V+0.0/wk | 14.7/g | cal 13.9/g | ECR 274 | 75 GP | season 1104 FP | last 15.6 (72)
-Zach Collins  # T17 | V+0.0/wk | 15.4/g | cal 14.5/g | ECR 264 | 67 GP | season 1031 FP | last 23.3 (10)
-Mike Conley  # T17 | V+0.0/wk | 15.4/g | cal 14.5/g | ECR 260 | 67 GP | season 1033 FP | last 14.2 (54)
-Nikola Jovic  # T17 | V+0.0/wk | 16.1/g | cal 16.6/g | ECR 210 | 50 GP | season 804 FP | last 16.3 (47)
-Jarred Vanderbilt  # T17 | V+0.0/wk | 13.8/g | ECR ? | 71 GP | season 982 FP | last 14.9 (65)
-Ben Sheppard  # T17 | V+0.0/wk | 13.0/g | ECR ? | 70 GP | season 911 FP | last 16.7 (65)
-Steven Adams  # T17 | V+0.0/wk | 12.8/g | ECR ? | 71 GP | season 908 FP | last 23.3 (32)
-Mouhamed Gueye  # T17 | V+0.0/wk | 12.5/g | ECR ? | 74 GP | season 924 FP | last 14.3 (77) | OUT uses bench, not IR
-Clint Capela  # T17 | V+0.0/wk | 14.9/g | ECR 250 | 45 GP | season 672 FP | last 14.8 (75)
-Shaedon Sharpe  # T17 | V+0.0/wk | 22.5/g | cal 22.6/g | ECR 162 | 18 GP | season 405 FP | last 33.0 (50) | ECR disagreement: reduced weight | OUT uses bench, not IR
-Trayce Jackson-Davis  # T17 | V+0.0/wk | 13.8/g | cal 13.2/g | ECR 272 | 47 GP | season 647 FP | last 10.4 (53)
-Jericho Sims  # T17 | V+0.0/wk | 12.9/g | ECR ? | 46 GP | season 593 FP | last 17.6 (67)
-Thomas Bryant  # T17 | V+0.0/wk | 11.7/g | ECR ? | 48 GP | season 562 FP | last 14.8 (60)
-Leonard Miller  # T17 | V+0.0/wk | 11.4/g | ECR ? | 45 GP | season 511 FP | last 17.4 (46)
-Jonathan Mogbo  # T17 | V+0.0/wk | 9.6/g | ECR ? | 47 GP | season 453 FP | last 6.0 (40)
-Jonathan Isaac  # T17 | V+0.0/wk | 9.3/g | ECR ? | 42 GP | season 390 FP | last 9.1 (52)
+# In-season blend: FP/g -> prior + n/(n+6.5)*(actual - prior) after n games (249 players, games through 2026-10-28); board-actuals.csv.
+Nikola Jokic  # T1 | V+41.4/wk | 73.9/g | ECR 1 | 4 G 58.2/g -> 67.9/g | 75 GP | season 5542 FP | last 75.4 (65)
+Luka Doncic  # T2 | V+38.4/wk | 63.7/g | ECR 3 | 4 G 67.5/g -> 65.2/g | 74 GP | season 4712 FP | last 67.4 (64)
+Giannis Antetokounmpo  # T3 | V+34.8/wk | 66.6/g | cal 66.2/g | ECR 5 | 5 G 56.0/g -> 61.8/g | 73 GP | season 4859 FP | last 58.2 (36)
+Victor Wembanyama  # T3 | V+34.1/wk | 60.3/g | cal 60.7/g | ECR 2 | 5 G 61.5/g -> 61.0/g | 73 GP | season 4401 FP | last 60.7 (64)
+Shai Gilgeous-Alexander  # T4 | V+29.8/wk | 62.5/g | cal 62.4/g | ECR 4 | 5 G 46.2/g -> 55.4/g | 77 GP | season 4811 FP | last 62.6 (68)
+Domantas Sabonis  # T5 | V+27.7/wk | 49.8/g | ECR 26 | 4 G 61.1/g -> 54.1/g | 74 GP | season 3683 FP | last 41.5 (19)
+Jayson Tatum  # T5 | V+27.5/wk | 52.2/g | cal 52.0/g | ECR 53 | 4 G 58.2/g -> 54.4/g | 72 GP | season 3762 FP | last 49.7 (16) | active; preseason verified Oct 19; ECR range 6-119 | 2nd season post-Achilles: -5%/g | ECR disagreement: reduced weight | ECR review: FIXED recovery discount; returned last season; broad expert range is not a firm forecast
+Jalen Johnson  # T5 | V+27.1/wk | 52.7/g | ECR 10 | 5 G 53.9/g -> 53.2/g | 75 GP | season 3954 FP | last 55.2 (72)
+Cooper Flagg  # T5 | V+26.7/wk | 49.7/g | cal 49.5/g | ECR 15 | 4 G 58.1/g -> 52.8/g | 75 GP | season 3725 FP | last 43.7 (70)
+Anthony Edwards  # T5 | V+26.3/wk | 51.7/g | cal 51.9/g | ECR 7 | 4 G 53.2/g -> 52.4/g | 75 GP | season 3880 FP | last 50.6 (61)
+Cade Cunningham  # T6 | V+25.5/wk | 54.2/g | ECR 6 | 5 G 48.9/g -> 51.9/g | 74 GP | season 4010 FP | last 54.2 (64)
+Alperen Sengun  # T6 | V+25.3/wk | 46.7/g | cal 47.9/g | ECR 9 | 4 G 57.1/g -> 51.4/g | 75 GP | season 3503 FP | last 48.7 (72)
+Tyrese Maxey  # T6 | V+24.6/wk | 49.9/g | ECR 8 | 5 G 51.8/g -> 50.7/g | 75 GP | season 3740 FP | last 55.7 (70)
+Karl-Anthony Towns  # T6 | V+23.9/wk | 51.0/g | cal 51.1/g | ECR 18 | 5 G 49.1/g -> 50.2/g | 74 GP | season 3777 FP | last 48.0 (75)
+Paolo Banchero  # T6 | V+23.9/wk | 47.6/g | cal 49.1/g | ECR 12 | 2 G 53.8/g -> 50.2/g | 74 GP | season 3525 FP | last 46.4 (72)
+Donovan Mitchell  # T6 | V+23.8/wk | 50.2/g | ECR 11 | 4 G 49.4/g -> 49.9/g | 75 GP | season 3765 FP | last 52.0 (70)
+Stephen Curry  # T7 | V+22.5/wk | 46.2/g | cal 46.1/g | ECR 30 | 4 G 54.1/g -> 49.1/g | 73 GP | season 3370 FP | last 47.0 (43) | ankle tweak; Kerr says fine Oct 19; recheck opener
+Devin Booker  # T7 | V+21.8/wk | 48.5/g | cal 48.7/g | ECR 22 | 3 G 46.3/g -> 48.0/g | 75 GP | season 3634 FP | last 46.8 (64)
+Deni Avdija  # T7 | V+21.2/wk | 47.5/g | ECR 34 | 3 G 47.2/g -> 47.4/g | 75 GP | season 3560 FP | last 50.2 (66)
+Kevin Durant  # T7 | V+21.2/wk | 47.7/g | ECR 19 | 5 G 46.8/g -> 47.3/g | 75 GP | season 3576 FP | last 49.3 (78)
+Evan Mobley  # T8 | V+20.0/wk | 46.8/g | cal 46.3/g | ECR 31 | 4 G 47.6/g -> 46.8/g | 72 GP | season 3372 FP | last 44.3 (65)
+Austin Reaves  # T8 | V+20.0/wk | 45.6/g | cal 45.7/g | ECR 32 | 5 G 47.7/g -> 46.6/g | 73 GP | season 3330 FP | last 46.4 (51)
+Jamal Murray  # T8 | V+19.8/wk | 46.5/g | ECR 21 | 4 G 45.8/g -> 46.2/g | 74 GP | season 3440 FP | last 51.6 (75)
+Anthony Davis  # T8 | V+19.7/wk | 51.0/g | cal 50.5/g | ECR 16 | 5 G 42.3/g -> 46.9/g | 70 GP | season 3568 FP | last 48.1 (20)
+Trae Young  # T8 | V+19.6/wk | 44.2/g | cal 44.6/g | ECR 25 | 5 G 47.3/g -> 45.8/g | 75 GP | season 3315 FP | last 39.1 (15) | ECR disagreement: reduced weight
+Tyrese Haliburton  # T8 | V+19.1/wk | 44.3/g | cal 44.2/g | ECR 69 | 4 G 53.8/g -> 47.8/g | 65 GP | season 2882 FP | last n/a | active in preseason; recovery risk; ECR range 11-125 | 1st season post-Achilles: -10%/g, 65 GP | ECR disagreement: reduced weight | ECR review: FIXED Achilles production/availability; recovery remains a risk
+Joel Embiid  # T8 | V+19.0/wk | 51.6/g | cal 50.8/g | ECR 44 | 4 G 47.1/g -> 49.4/g | 59 GP | season 3042 FP | last 52.2 (38) | active in preseason; recurring absence risk
+Scottie Barnes  # T8 | V+18.8/wk | 45.9/g | cal 46.4/g | ECR 13 | 4 G 42.8/g -> 45.0/g | 75 GP | season 3446 FP | last 46.6 (80)
+Jalen Brunson  # T8 | V+18.7/wk | 47.6/g | cal 48.1/g | ECR 14 | 5 G 40.7/g -> 44.9/g | 75 GP | season 3570 FP | last 47.2 (74)
+Pascal Siakam  # T8 | V+18.5/wk | 44.6/g | cal 44.5/g | ECR 33 | 5 G 44.5/g -> 44.5/g | 76 GP | season 3387 FP | last 44.3 (62)
+Jalen Duren  # T9 | V+17.2/wk | 46.0/g | ECR 36 | 2 G 35.2/g -> 43.5/g | 75 GP | season 3450 FP | last 46.1 (70)
+Kawhi Leonard  # T9 | V+17.2/wk | 49.2/g | cal 48.2/g | ECR 35 | 2 G 40.8/g -> 46.4/g | 60 GP | season 2952 FP | last 54.3 (65) | load mgmt plan (TOR)
+Amen Thompson  # T9 | V+16.8/wk | 42.3/g | cal 43.2/g | ECR 20 | 5 G 41.7/g -> 42.5/g | 78 GP | season 3298 FP | last 45.0 (79)
+LeBron James  # T9 | V+16.7/wk | 48.5/g | cal 48.3/g | ECR 28 | 4 G 41.1/g -> 45.6/g | 61 GP | season 2958 FP | last 47.2 (60) | PHI to rest b2bs, age 42 | ECR disagreement: reduced weight
+Jaylen Brown  # T9 | V+16.6/wk | 44.7/g | cal 45.2/g | ECR 29 | 5 G 39.8/g -> 42.8/g | 75 GP | season 3351 FP | last 51.1 (71)
+Ty Jerome  # T9 | V+16.6/wk | 36.1/g | cal 35.9/g | ECR 106 | 4 G 56.0/g -> 43.6/g | 71 GP | season 2565 FP | last 40.2 (15) | ECR disagreement: reduced weight | ECR review: RISK source projects expanded production; last 40.2/g was only 15 games
+Zion Williamson  # T9 | V+16.3/wk | 44.4/g | ECR 41 | 4 G 42.4/g -> 43.7/g | 69 GP | season 3067 FP | last 41.6 (62)
+Julius Randle  # T9 | V+16.2/wk | 39.5/g | cal 40.9/g | ECR 40 | 4 G 45.0/g -> 42.5/g | 75 GP | season 2963 FP | last 43.4 (79)
+James Harden  # T9 | V+16.2/wk | 47.6/g | ECR 27 | 4 G 33.5/g -> 42.2/g | 76 GP | season 3620 FP | last 50.4 (70)
+Bam Adebayo  # T9 | V+15.6/wk | 45.3/g | cal 46.2/g | ECR 24 | 5 G 35.8/g -> 41.7/g | 76 GP | season 3445 FP | last 46.0 (73) | groin DTD; practiced Oct 19; opener not confirmed
+Keyonte George  # T10 | V+14.9/wk | 39.5/g | cal 39.8/g | ECR 55 | 5 G 43.7/g -> 41.5/g | 73 GP | season 2886 FP | last 45.1 (54)
+Tyler Herro  # T10 | V+14.9/wk | 40.5/g | cal 40.3/g | ECR 58 | 5 G 43.1/g -> 41.5/g | 73 GP | season 2954 FP | last 39.5 (33)
+Franz Wagner  # T10 | V+14.1/wk | 44.0/g | cal 43.6/g | ECR 47 | 4 G 36.4/g -> 40.9/g | 72 GP | season 3169 FP | last 39.3 (34) | shoulder GTD, recheck
+Michael Porter Jr.  # T10 | V+13.7/wk | 38.4/g | cal 38.7/g | ECR 57 | 4 G 42.6/g -> 40.2/g | 74 GP | season 2840 FP | last 44.9 (52)
+Jarrett Allen  # T10 | V+13.5/wk | 40.6/g | cal 40.5/g | ECR 62 | 4 G 38.8/g -> 39.8/g | 75 GP | season 3042 FP | last 38.1 (56)
+RJ Barrett  # T11 | V+12.8/wk | 37.3/g | cal 37.4/g | ECR 76 | 4 G 43.4/g -> 39.7/g | 72 GP | season 2684 FP | last 36.5 (57)
+Kyrie Irving  # T11 | V+12.6/wk | 44.1/g | cal 43.7/g | ECR 80 | 4 G 35.8/g -> 40.7/g | 65 GP | season 2865 FP | last n/a | returned Oct 11; post-ACL workload risk | 1st season post-ACL: -5%/g, 65 GP | ECR disagreement: reduced weight | ECR review: FIXED ACL production/availability; recovery remains a risk
+De'Aaron Fox  # T11 | V+12.6/wk | 38.3/g | cal 38.4/g | ECR 52 | 5 G 39.8/g -> 39.0/g | 75 GP | season 2875 FP | last 39.1 (72)
+Brandon Miller  # T11 | V+12.6/wk | 38.2/g | cal 38.9/g | ECR 42 | 5 G 39.7/g -> 39.2/g | 73 GP | season 2792 FP | last 37.2 (65)
+Chet Holmgren  # T11 | V+12.4/wk | 39.4/g | cal 40.1/g | ECR 39 | 3 G 37.5/g -> 39.3/g | 72 GP | season 2839 FP | last 42.0 (69)
+Josh Giddey  # T11 | V+12.4/wk | 46.8/g | cal 47.0/g | ECR 17 | 5 G 28.8/g -> 39.1/g | 73 GP | season 3417 FP | last 46.8 (54)
+Caleb Wilson  # T11 | V+12.3/wk | 39.4/g | cal 39.0/g | ECR 109 | 5 G 38.3/g -> 38.7/g | 75 GP | season 2954 FP | last n/a | ECR disagreement: reduced weight | ECR review: RISK rookie projection; expected starter, production unproven; prefer proven peer within tier
+Cameron Boozer  # T11 | V+12.3/wk | 39.2/g | cal 39.0/g | ECR 105 | 4 G 38.1/g -> 38.7/g | 75 GP | season 2937 FP | last n/a | ECR disagreement: reduced weight | ECR review: RISK rookie projection; major role supported, production unproven; prefer proven peer within tier
+Paul George  # T11 | V+11.9/wk | 38.5/g | cal 38.2/g | ECR 78 | 4 G 43.6/g -> 40.3/g | 63 GP | season 2427 FP | last 37.3 (37)
+Dejounte Murray  # T11 | V+11.8/wk | 37.7/g | cal 37.9/g | ECR 56 | 4 G 42.4/g -> 39.6/g | 66 GP | season 2488 FP | last 38.7 (14) | toe; 45 GP in 2 yrs
+LaMelo Ball  # T11 | V+11.7/wk | 47.5/g | cal 47.1/g | ECR 23 | 5 G 27.2/g -> 38.4/g | 73 GP | season 3467 FP | last 41.8 (72)
+Stephon Castle  # T11 | V+11.7/wk | 38.5/g | cal 38.9/g | ECR 49 | 5 G 37.1/g -> 38.1/g | 75 GP | season 2890 FP | last 39.8 (68)
+Jalen Williams  # T11 | V+11.6/wk | 42.5/g | cal 42.4/g | ECR 38 | 3 G 28.8/g -> 38.1/g | 74 GP | season 3144 FP | last 37.9 (33)
+Zach LaVine  # T11 | V+11.2/wk | 34.2/g | cal 34.4/g | ECR 87 | 4 G 44.9/g -> 38.4/g | 70 GP | season 2395 FP | last 31.4 (39)
+Walker Kessler  # T11 | V+11.0/wk | 38.9/g | cal 39.3/g | ECR 43 | 5 G 36.1/g -> 37.9/g | 72 GP | season 2803 FP | last 44.0 (5)
+Damian Lillard  # T11 | V+11.0/wk | 38.8/g | cal 38.6/g | ECR 103 | 3 G 41.7/g -> 39.6/g | 62 GP | season 2406 FP | last n/a | 1st season post-Achilles, age 36: -10%/g, 62 GP | ECR disagreement: reduced weight | ECR review: FIXED Achilles production/availability; age and recovery remain risks
+Lauri Markkanen  # T12 | V+10.4/wk | 41.1/g | cal 41.4/g | ECR 48 | 4 G 30.0/g -> 37.0/g | 74 GP | season 3043 FP | last 48.7 (42)
+Norman Powell  # T12 | V+10.2/wk | 37.1/g | cal 37.0/g | ECR 83 | 5 G 36.7/g -> 36.8/g | 74 GP | season 2742 FP | last 36.8 (58)
+Coby White  # T12 | V+10.1/wk | 37.6/g | cal 37.9/g | ECR 66 | 66 GP | season 2482 FP | last 30.8 (50) | calf, no timeline
+Ivica Zubac  # T12 | V+10.0/wk | 41.9/g | cal 41.6/g | ECR 60 | 3 G 25.7/g -> 36.6/g | 74 GP | season 3100 FP | last 37.0 (48)
+Ja Morant  # T12 | V+10.0/wk | 37.4/g | cal 37.7/g | ECR 50 | 3 G 38.3/g -> 37.9/g | 65 GP | season 2433 FP | last 39.5 (20) | likely 6th man behind Lillard | ECR review: KEEP existing bench-role and 65-GP cuts; not a healthy starting-role projection
+AJ Dybantsa  # T12 | V+9.9/wk | 38.4/g | cal 38.0/g | ECR 129 | 1 G 29.0/g -> 36.8/g | 72 GP | season 2765 FP | last n/a | ankle DTD | ECR disagreement: reduced weight | ECR review: RISK rookie projection and ankle; already 72 GP; prefer proven peer within tier
+Dyson Daniels  # T12 | V+9.7/wk | 35.2/g | ECR 59 | 5 G 36.8/g -> 35.9/g | 77 GP | season 2708 FP | last 37.4 (76)
+Kon Knueppel  # T12 | V+9.5/wk | 36.5/g | cal 36.4/g | ECR 89 | 72 GP | season 2628 FP | last 36.3 (81) | hamstring, no timeline | ECR disagreement: reduced weight
+Immanuel Quickley  # T12 | V+9.4/wk | 36.6/g | cal 36.4/g | ECR 77 | 4 G 36.0/g -> 36.3/g | 72 GP | season 2638 FP | last 37.5 (70)
+OG Anunoby  # T13 | V+8.4/wk | 35.7/g | cal 35.5/g | ECR 79 | 5 G 34.7/g -> 35.2/g | 73 GP | season 2605 FP | last 35.0 (67)
+Derrick White  # T13 | V+8.3/wk | 37.6/g | ECR 51 | 4 G 29.5/g -> 34.5/g | 78 GP | season 2935 FP | last 38.4 (77)
+Desmond Bane  # T13 | V+8.2/wk | 39.8/g | cal 39.9/g | ECR 46 | 4 G 26.5/g -> 34.8/g | 75 GP | season 2988 FP | last 39.1 (82)
+Trey Murphy III  # T13 | V+7.8/wk | 39.9/g | cal 40.5/g | ECR 37 | 4 G 25.1/g -> 34.6/g | 73 GP | season 2916 FP | last 44.0 (66)
+Brandon Ingram  # T13 | V+7.8/wk | 40.4/g | cal 40.2/g | ECR 75 | 55 GP | season 2222 FP | last 40.3 (77) | heel surgery/partial Achilles tear; delayed debut; no confirmed return timetable | ECR disagreement: reduced weight | OUT uses bench, not IR
+Dylan Harper  # T13 | V+7.7/wk | 33.3/g | cal 33.2/g | ECR 104 | 5 G 35.7/g -> 34.3/g | 75 GP | season 2499 FP | last 26.6 (69) | + starting opener | ECR disagreement: reduced weight
+Darius Garland  # T13 | V+7.4/wk | 38.4/g | cal 38.3/g | ECR 54 | 4 G 27.5/g -> 34.2/g | 74 GP | season 2842 FP | last 36.5 (45)
+Jaren Jackson Jr.  # T13 | V+7.3/wk | 37.2/g | cal 37.6/g | ECR 45 | 4 G 29.5/g -> 34.5/g | 70 GP | season 2605 FP | last 37.4 (48) | ECR review: KEEP conservative source projection: 37.2/g vs last 37.4; ECR alone does not prove improvement
+Yaxel Lendeborg  # T13 | V+7.3/wk | 24.6/g | cal 24.5/g | ECR 176 | 5 G 46.0/g -> 33.9/g | 75 GP | season 1843 FP | last n/a | ECR disagreement: reduced weight
+Jabari Smith Jr.  # T13 | V+7.2/wk | 30.1/g | cal 30.7/g | ECR 99 | 5 G 37.6/g -> 33.7/g | 76 GP | season 2290 FP | last 33.8 (77)
+Andrew Nembhard  # T13 | V+7.2/wk | 32.0/g | ECR 102 | 4 G 36.6/g -> 33.8/g | 75 GP | season 2403 FP | last 37.2 (57) | ECR disagreement: reduced weight
+Darius Acuff Jr.  # T13 | V+7.1/wk | 36.4/g | cal 36.2/g | ECR 122 | 4 G 29.4/g -> 33.6/g | 76 GP | season 2770 FP | last n/a | - TO > AST in preseason | ECR disagreement: reduced weight | ECR review: RISK rookie efficiency/turnovers; lead role supported; prefer proven peer within tier
+Miles Bridges  # T13 | V+7.0/wk | 36.1/g | cal 36.3/g | ECR 74 | 3 G 28.0/g -> 33.7/g | 75 GP | season 2710 FP | last 34.8 (77)
+Nickeil Alexander-Walker  # T13 | V+7.0/wk | 31.5/g | cal 31.7/g | ECR 81 | 5 G 35.2/g -> 33.2/g | 79 GP | season 2489 FP | last 38.8 (78) | ECR disagreement: reduced weight | ECR review: RISK source regression: 31.5/g vs last 38.8; ECR favors him, consider within tier
+Josh Hart  # T13 | V+7.0/wk | 36.9/g | ECR 72 | 5 G 30.4/g -> 34.1/g | 71 GP | season 2620 FP | last 35.0 (66) | ankle, misses opener
+Donovan Clingan  # T13 | V+6.9/wk | 33.9/g | cal 34.7/g | ECR 61 | 3 G 30.8/g -> 33.5/g | 76 GP | season 2579 FP | last 39.5 (77) | ECR review: RISK source regression: 33.9/g vs last 39.5; ECR favors him, consider within tier
+Jaden McDaniels  # T13 | V+6.9/wk | 31.2/g | cal 31.6/g | ECR 88 | 5 G 35.7/g -> 33.4/g | 76 GP | season 2374 FP | last 31.4 (73)
+VJ Edgecombe  # T13 | V+6.5/wk | 34.9/g | cal 34.8/g | ECR 91 | 4 G 30.6/g -> 33.2/g | 75 GP | season 2621 FP | last 35.9 (75)
+Naz Reid  # T13 | V+6.4/wk | 33.0/g | cal 33.6/g | ECR 71 | 5 G 31.9/g -> 32.9/g | 77 GP | season 2538 FP | last 31.1 (77) | ECR review: KEEP source 33.0/g near last 31.1; ECR optimism alone is not a role change
+Jimmy Butler III  # T14 | V+6.1/wk | 42.9/g | cal 42.4/g | ECR 117 | 44 GP | season 1886 FP | last 45.6 (38) | ECR disagreement: reduced weight | OUT uses bench, not IR
+Alex Sarr  # T14 | V+5.9/wk | 34.5/g | cal 34.9/g | ECR 64 | 5 G 30.3/g -> 32.9/g | 72 GP | season 2483 FP | last 38.1 (48) | ECR review: RISK source regression: 34.5/g vs last 38.1; ECR favors him, consider within tier
+Brandin Podziemski  # T14 | V+5.9/wk | 31.6/g | cal 31.9/g | ECR 100 | 3 G 32.8/g -> 32.2/g | 79 GP | season 2494 FP | last 31.5 (82) | + usage up (GSW injuries); back Q
+Derik Queen  # T14 | V+5.5/wk | 30.5/g | cal 30.6/g | ECR 107 | 4 G 34.2/g -> 32.0/g | 77 GP | season 2345 FP | last 31.8 (81) | ECR disagreement: reduced weight
+Rudy Gobert  # T14 | V+5.3/wk | 37.9/g | cal 38.1/g | ECR 67 | 5 G 24.3/g -> 32.1/g | 75 GP | season 2846 FP | last 37.2 (76)
+Aaron Gordon  # T14 | V+5.2/wk | 32.8/g | cal 32.9/g | ECR 111 | 4 G 31.1/g -> 32.2/g | 72 GP | season 2362 FP | last 34.4 (36)
+Jaime Jaquez Jr.  # T14 | V+5.1/wk | 29.3/g | cal 29.6/g | ECR 112 | 5 G 34.6/g -> 31.8/g | 76 GP | season 2224 FP | last 33.3 (75) | + moving into starting 5
+Cedric Coward  # T14 | V+5.1/wk | 30.5/g | ECR 127 | 3 G 35.0/g -> 31.9/g | 74 GP | season 2259 FP | last 29.9 (62) | ECR disagreement: reduced weight
+Fred VanVleet  # T14 | V+5.0/wk | 30.9/g | cal 30.7/g | ECR 136 | 4 G 36.2/g -> 32.8/g | 65 GP | season 2009 FP | last n/a | post-ACL workload judgment: -5%/g, 65 GP; restriction possible | ECR disagreement: reduced weight
+Onyeka Okongwu  # T14 | V+4.8/wk | 35.9/g | cal 36.3/g | ECR 63 | 5 G 25.4/g -> 31.6/g | 75 GP | season 2696 FP | last 37.9 (74)
+Nic Claxton  # T14 | V+4.7/wk | 33.2/g | ECR 96 | 66 GP | season 2191 FP | last 33.1 (69) | hamstring; Oct 19 re-eval: another ~2 weeks; no confirmed return; already 66 GP | OUT uses bench, not IR
+CJ McCollum  # T14 | V+4.6/wk | 34.2/g | ECR 85 | 5 G 27.5/g -> 31.3/g | 76 GP | season 2596 FP | last 33.9 (76)
+Wendell Carter Jr.  # T14 | V+4.5/wk | 27.7/g | ECR 147 | 4 G 37.1/g -> 31.3/g | 75 GP | season 2076 FP | last 30.7 (78)
+Isaiah Hartenstein  # T14 | V+4.4/wk | 33.1/g | cal 33.4/g | ECR 93 | 5 G 29.2/g -> 31.6/g | 71 GP | season 2351 FP | last 33.5 (47) | - timeshare w/ Mara?
+Jalen Green  # T14 | V+4.4/wk | 34.5/g | cal 34.7/g | ECR 73 | 3 G 23.8/g -> 31.3/g | 74 GP | season 2552 FP | last 28.8 (32)
+Payton Pritchard  # T14 | V+4.2/wk | 33.5/g | cal 34.0/g | ECR 70 | 4 G 26.1/g -> 31.0/g | 75 GP | season 2515 FP | last 35.5 (79)
+Jonathan Kuminga  # T14 | V+4.2/wk | 29.0/g | cal 29.2/g | ECR 124 | 5 G 34.0/g -> 31.3/g | 72 GP | season 2087 FP | last 25.6 (36)
+Tobias Harris  # T15 | V+3.8/wk | 31.7/g | cal 31.4/g | ECR 135 | 72 GP | season 2282 FP | last 29.7 (63) | calf, misses opener | ECR review: KEEP modest source 31.7/g vs last 29.7; calf already priced at 72 GP | OUT uses bench, not IR
+P.J. Washington Jr.  # T15 | V+3.7/wk | 30.4/g | cal 30.5/g | ECR 113 | 5 G 31.5/g -> 30.9/g | 71 GP | season 2158 FP | last 31.4 (56)
+Kel'el Ware  # T15 | V+3.7/wk | 33.0/g | cal 33.5/g | ECR 82 | 5 G 26.7/g -> 30.5/g | 75 GP | season 2477 FP | last 31.5 (77)
+Zach Edey  # T15 | V+3.6/wk | 32.2/g | cal 33.4/g | ECR 65 | 3 G 25.5/g -> 30.9/g | 70 GP | season 2251 FP | last 38.0 (11) | ECR review: KEEP conservative source minutes and availability; last 38.0/g was only 11 games
+Darryn Peterson  # T15 | V+3.4/wk | 33.8/g | cal 33.5/g | ECR 134 | 5 G 26.0/g -> 30.2/g | 76 GP | season 2569 FP | last n/a | + starting | ECR disagreement: reduced weight | ECR review: RISK rookie production; starting role noted, no evidence for a precise additional cut
+Ayo Dosunmu  # T15 | V+3.2/wk | 31.2/g | cal 30.8/g | ECR 115 | 5 G 29.1/g -> 30.1/g | 75 GP | season 2338 FP | last 30.7 (69) | - bench all preseason
+DeMar DeRozan  # T15 | V+3.1/wk | 33.6/g | cal 33.7/g | ECR 94 | 4 G 23.5/g -> 29.8/g | 77 GP | season 2586 FP | last 36.5 (77) | - bench in preseason | ECR disagreement: reduced weight
+John Collins  # T15 | V+2.9/wk | 35.1/g | cal 34.8/g | ECR 108 | 5 G 23.7/g -> 30.0/g | 73 GP | season 2560 FP | last 28.2 (69) | ECR disagreement: reduced weight | ECR review: RISK source improvement: 35.1/g vs last 28.2; do not assume breakout is established
+Matas Buzelis  # T15 | V+2.7/wk | 31.2/g | cal 31.9/g | ECR 68 | 5 G 26.5/g -> 29.5/g | 76 GP | season 2368 FP | last 33.5 (77) | ECR review: RISK source 31.2/g below last 33.5 despite starting role; consider upside within tier
+Kyshawn George  # T15 | V+2.6/wk | 28.0/g | ECR 126 | 5 G 32.1/g -> 29.8/g | 72 GP | season 2016 FP | last 33.4 (48)
+Davion Mitchell  # T15 | V+2.5/wk | 25.1/g | ECR 139 | 5 G 35.1/g -> 29.4/g | 75 GP | season 1879 FP | last 27.8 (70) | ECR disagreement: reduced weight
+Ausar Thompson  # T15 | V+2.1/wk | 29.5/g | cal 30.0/g | ECR 84 | 4 G 27.8/g -> 29.2/g | 74 GP | season 2183 FP | last 29.9 (73) | ECR review: KEEP source 29.5/g near last 29.9; scoring adds little over ESPN for his profile
+Ace Bailey  # T15 | V+2.1/wk | 25.0/g | cal 25.1/g | ECR 140 | 5 G 34.2/g -> 29.1/g | 75 GP | season 1876 FP | last 25.6 (72)
+Moussa Diabate  # T15 | V+1.9/wk | 25.6/g | ECR 166 | 5 G 33.3/g -> 28.9/g | 74 GP | season 1893 FP | last 29.3 (73) | + starting C ~30 min | ECR disagreement: reduced weight
+Peyton Watson  # T15 | V+1.9/wk | 28.7/g | cal 28.5/g | ECR 146 | 4 G 29.4/g -> 28.8/g | 75 GP | season 2149 FP | last 30.8 (54) | + likely starter | ECR disagreement: reduced weight | ECR review: KEEP source 28.7/g below last 30.8 despite likely starting role; late bench upside
+Kristaps Porzingis  # T16 | V+1.6/wk | 32.9/g | cal 32.8/g | ECR 118 | 50 GP | season 1645 FP | last 35.3 (32) | OUT illness; prior December return estimate unverified | ECR disagreement: reduced weight | OUT uses bench, not IR
+Dillon Brooks  # T16 | V+1.5/wk | 28.9/g | cal 28.8/g | ECR 132 | 3 G 28.2/g -> 28.6/g | 74 GP | season 2140 FP | last 31.0 (56)
+Jalen Suggs  # T16 | V+1.4/wk | 30.2/g | cal 30.5/g | ECR 90 | 3 G 25.0/g -> 28.8/g | 70 GP | season 2117 FP | last 33.5 (57) | ECR review: KEEP conservative source and 70 GP; ECR alone does not prove higher production
+Ajay Mitchell  # T16 | V+1.2/wk | 21.4/g | cal 21.5/g | ECR 161 | 5 G 38.4/g -> 28.8/g | 67 GP | season 1431 FP | last 29.6 (57) | ECR disagreement: reduced weight
+Toumani Camara  # T16 | V+1.2/wk | 25.8/g | cal 26.2/g | ECR 120 | 3 G 32.2/g -> 28.1/g | 77 GP | season 1985 FP | last 28.3 (82) | ECR review: KEEP source 25.8/g below replacement; no automatic promotion from generic ECR
+Jusuf Nurkic  # T16 | V+1.1/wk | 29.1/g | cal 29.3/g | ECR 110 | 68 GP | season 1976 FP | last 36.5 (41) | ECR disagreement: reduced weight | ECR review: KEEP conservative 68 GP and 29.1/g; prior 36.5/g was 41 games | OUT uses bench, not IR
+Jrue Holiday  # T16 | V+0.9/wk | 25.1/g | cal 25.5/g | ECR 116 | 3 G 33.7/g -> 28.1/g | 73 GP | season 1832 FP | last 35.2 (53) | ECR review: KEEP conservative source role: 25.1/g vs last 35.2; upside requires more minutes
+Devin Vassell  # T16 | V+0.8/wk | 26.6/g | cal 26.8/g | ECR 123 | 5 G 29.5/g -> 28.0/g | 74 GP | season 1971 FP | last 28.6 (67) | ECR disagreement: reduced weight
+Yves Missi  # T16 | V+0.8/wk | 25.4/g | cal 25.2/g | ECR 187 | 2 G 36.8/g -> 27.9/g | 73 GP | season 1856 FP | last 20.5 (66) | ECR disagreement: reduced weight
+Bobby Portis Jr.  # T16 | V+0.7/wk | 26.9/g | ECR 145 | 5 G 29.3/g -> 28.0/g | 72 GP | season 1938 FP | last 28.7 (67)
+Dereck Lively II  # T16 | V+0.7/wk | 29.2/g | cal 28.9/g | ECR 180 | 55 GP | season 1604 FP | last 20.1 (7) | - foot, not cleared | foot recovery: 55 GP judgment; return unconfirmed Oct 19 | ECR disagreement: reduced weight | ECR review: FIXED foot availability: 55 GP; uncertain return, prefer active cover
+Cameron Johnson  # T16 | V+0.2/wk | 29.9/g | cal 29.8/g | ECR 137 | 1 G 12.0/g -> 27.4/g | 73 GP | season 2185 FP | last 26.5 (54) | ECR disagreement: reduced weight
+Keaton Wagler  # T16 | V+0.2/wk | 29.4/g | cal 29.0/g | ECR 195 | 4 G 24.5/g -> 27.3/g | 74 GP | season 2175 FP | last n/a | ECR disagreement: reduced weight | ECR review: RISK rookie minutes in crowded rotation; speculative bench pick
+Pelle Larsson  # T16 | V+0.1/wk | 25.6/g | ECR ? | 5 G 29.4/g -> 27.3/g | 74 GP | season 1895 FP | IN-SEASON ADD | prior = last season 25.6/g in 70 G
+Daniel Gafford  # T16 | V+0.0/wk | 26.1/g | cal 26.0/g | ECR 160 | 5 G 28.6/g -> 27.1/g | 73 GP | season 1907 FP | last 28.1 (55) | + starting while Lively out
+Ryan Rollins  # T16 | V+0.0/wk | 28.6/g | ECR 97 | 5 G 24.4/g -> 26.8/g | 74 GP | season 2114 FP | last 37.9 (74) | + starting PG (last 37.9/g) | ECR disagreement: reduced weight | ECR review: RISK source 28.6/g below last 37.9 despite starting role; consider upside within tier
+Andrew Wiggins  # T16 | V+0.0/wk | 32.3/g | ECR 92 | 5 G 19.8/g -> 26.9/g | 73 GP | season 2358 FP | last 32.9 (68)
+Jalen Smith  # T16 | V+0.0/wk | 21.8/g | ECR 201 | 5 G 33.8/g -> 27.0/g | 72 GP | season 1571 FP | last 26.0 (53) | ECR disagreement: reduced weight
+Saddiq Bey  # T16 | V+0.0/wk | 27.1/g | ECR 153 | 4 G 25.5/g -> 26.5/g | 75 GP | season 2030 FP | last 35.4 (72) | ECR disagreement: reduced weight
+Christian Braun  # T16 | V+0.0/wk | 27.7/g | cal 27.6/g | ECR 152 | 4 G 25.5/g -> 26.8/g | 72 GP | season 1994 FP | last 27.8 (44) | ECR disagreement: reduced weight
+Mikel Brown Jr.  # T16 | V+0.0/wk | 28.9/g | cal 28.6/g | ECR 185 | 3 G 21.0/g -> 26.2/g | 75 GP | season 2165 FP | last n/a | - ankle, bench + min limit | MINUTES LIMIT: season projection assumes eventual full role | ECR disagreement: reduced weight | ECR review: RISK minutes restriction and bench role; full-season role unverified; prefer active cover
+Keegan Murray  # T16 | V+0.0/wk | 29.5/g | cal 30.0/g | ECR 95 | 2 G 12.5/g -> 25.9/g | 75 GP | season 2212 FP | last 30.7 (23) | ECR review: KEEP source 29.5/g near last 30.7; no verified role change requiring promotion
+Naji Marshall  # T16 | V+0.0/wk | 23.8/g | ECR 183 | 3 G 30.5/g -> 25.9/g | 74 GP | season 1761 FP | last 31.9 (74) | ECR disagreement: reduced weight
+Kyle Kuzma  # T16 | V+0.0/wk | 24.8/g | ECR 177 | 5 G 27.8/g -> 26.1/g | 73 GP | season 1810 FP | last 26.8 (69) | ECR disagreement: reduced weight
+Paul Reed  # T16 | V+0.0/wk | 18.3/g | cal 18.7/g | ECR 182 | 5 G 36.3/g -> 26.3/g | 71 GP | season 1297 FP | last 21.6 (65)
+Duncan Robinson  # T16 | V+0.0/wk | 22.2/g | cal 22.1/g | ECR 209 | 5 G 29.4/g -> 25.3/g | 77 GP | season 1708 FP | last 24.1 (77) | ECR disagreement: reduced weight
+Anthony Black  # T16 | V+0.0/wk | 25.2/g | ECR 144 | 2 G 26.2/g -> 25.5/g | 74 GP | season 1865 FP | last 31.1 (64)
+Neemias Queta  # T16 | V+0.0/wk | 27.2/g | ECR 130 | 4 G 22.0/g -> 25.2/g | 75 GP | season 2037 FP | last 32.3 (76) | ECR disagreement: reduced weight
+Julian Champagnie  # T16 | V+0.0/wk | 21.4/g | cal 21.3/g | ECR 214 | 5 G 28.3/g -> 24.3/g | 80 GP | season 1711 FP | last 27.0 (82) | ECR disagreement: reduced weight
+Brook Lopez  # T16 | V+0.0/wk | 22.5/g | cal 22.3/g | ECR 194 | 4 G 29.2/g -> 25.0/g | 75 GP | season 1689 FP | last 20.3 (75)
+Grayson Allen  # T16 | V+0.0/wk | 23.7/g | ECR 172 | 5 G 28.0/g -> 25.6/g | 71 GP | season 1684 FP | last 32.5 (51)
+Jakob Poeltl  # T16 | V+0.0/wk | 33.8/g | cal 33.6/g | ECR 101 | 4 G 11.5/g -> 25.2/g | 72 GP | season 2434 FP | last 30.0 (46)
+Jaylen Wells  # T16 | V+0.0/wk | 20.1/g | cal 20.2/g | ECR 199 | 4 G 31.9/g -> 24.7/g | 75 GP | season 1509 FP | last 22.7 (69) | ECR disagreement: reduced weight
+Bradley Beal  # T16 | V+0.0/wk | 26.5/g | cal 26.4/g | ECR 188 | 65 GP | season 1725 FP | last 10.9 (6) | ECR disagreement: reduced weight | OUT uses bench, not IR
+Myles Turner  # T16 | V+0.0/wk | 28.0/g | cal 28.4/g | ECR 98 | 5 G 19.3/g -> 24.4/g | 75 GP | season 2103 FP | last 28.3 (71) | ECR review: KEEP source 28.0/g near last 28.3; ECR alone does not prove improvement
+Draymond Green  # T16 | V+0.0/wk | 28.3/g | cal 28.2/g | ECR 133 | 4 G 19.4/g -> 24.8/g | 72 GP | season 2035 FP | last 26.9 (68) | ECR disagreement: reduced weight
+Obi Toppin  # T16 | V+0.0/wk | 21.4/g | cal 20.6/g | ECR 245 | 5 G 30.4/g -> 24.9/g | 71 GP | season 1517 FP | last 24.9 (24)
+Reed Sheppard  # T16 | V+0.0/wk | 22.2/g | cal 22.8/g | ECR 131 | 4 G 25.5/g -> 23.9/g | 77 GP | season 1707 FP | last 29.1 (82) | ECR review: RISK source only 21.4 minutes/g; ECR favors larger role, speculative upside
+Day'Ron Sharpe  # T16 | V+0.0/wk | 26.4/g | cal 26.5/g | ECR 128 | 4 G 20.9/g -> 24.3/g | 74 GP | season 1951 FP | last 26.0 (62) | ECR disagreement: reduced weight
+Quentin Grimes  # T16 | V+0.0/wk | 28.6/g | cal 28.7/g | ECR 125 | 5 G 17.9/g -> 24.0/g | 76 GP | season 2171 FP | last 27.8 (75)
+Santi Aldama  # T16 | V+0.0/wk | 24.4/g | cal 24.5/g | ECR 163 | 72 GP | season 1758 FP | last 33.2 (43) | ECR disagreement: reduced weight
+Jerami Grant  # T16 | V+0.0/wk | 26.2/g | cal 26.4/g | ECR 141 | 4 G 20.8/g -> 24.3/g | 73 GP | season 1910 FP | last 31.9 (57)
+Robert Williams III  # T16 | V+0.0/wk | 22.6/g | cal 22.3/g | ECR 220 | 3 G 30.5/g -> 24.9/g | 69 GP | season 1562 FP | last 25.1 (59) | ECR disagreement: reduced weight
+Tre Jones  # T16 | V+0.0/wk | 24.1/g | cal 24.3/g | ECR 148 | 5 G 23.7/g -> 24.0/g | 73 GP | season 1760 FP | last 34.0 (65)
+Mikal Bridges  # T16 | V+0.0/wk | 32.5/g | ECR 86 | 5 G 10.6/g -> 23.0/g | 80 GP | season 2602 FP | last 33.3 (82)
+De'Andre Hunter  # T16 | V+0.0/wk | 25.6/g | cal 25.5/g | ECR 178 | 4 G 21.8/g -> 24.1/g | 72 GP | season 1842 FP | last 24.6 (45)
+Dennis Schroder  # T16 | V+0.0/wk | 21.6/g | cal 21.9/g | ECR 170 | 5 G 25.6/g -> 23.5/g | 75 GP | season 1618 FP | last 24.8 (70)
+Collin Sexton  # T16 | V+0.0/wk | 28.6/g | cal 28.4/g | ECR 174 | 4 G 15.5/g -> 23.5/g | 75 GP | season 2143 FP | last 28.2 (68) | ECR disagreement: reduced weight | ECR review: KEEP source 28.6/g near last 28.2; modest efficiency premium, not a breakout forecast
+Tari Eason  # T16 | V+0.0/wk | 22.0/g | cal 22.3/g | ECR 143 | 5 G 25.8/g -> 23.8/g | 72 GP | season 1584 FP | last 25.0 (60) | ECR disagreement: reduced weight
+Derrick Jones Jr.  # T16 | V+0.0/wk | 21.3/g | ECR ? | 4 G 26.6/g -> 23.3/g | 73 GP | season 1554 FP | last 23.3 (50)
+Zaccharie Risacher  # T16 | V+0.0/wk | 20.0/g | cal 19.9/g | ECR 222 | 5 G 27.4/g -> 23.1/g | 73 GP | season 1460 FP | last 20.3 (67)
+Precious Achiuwa  # T16 | V+0.0/wk | 21.4/g | cal 21.0/g | ECR 239 | 4 G 25.6/g -> 22.8/g | 75 GP | season 1607 FP | last 26.2 (73) | ECR disagreement: reduced weight
+Keldon Johnson  # T16 | V+0.0/wk | 22.3/g | cal 22.6/g | ECR 186 | 5 G 22.0/g -> 22.3/g | 78 GP | season 1743 FP | last 26.9 (82)
+Bilal Coulibaly  # T16 | V+0.0/wk | 21.6/g | ECR 173 | 5 G 24.7/g -> 23.0/g | 73 GP | season 1574 FP | last 27.6 (56) | ECR disagreement: reduced weight
+Aaron Nesmith  # T16 | V+0.0/wk | 25.8/g | cal 25.5/g | ECR 175 | 4 G 19.6/g -> 23.3/g | 71 GP | season 1829 FP | last 25.7 (45)
+Collin Gillespie  # T16 | V+0.0/wk | 24.7/g | ECR 171 | 3 G 17.3/g -> 22.3/g | 76 GP | season 1879 FP | last 30.4 (80) | ECR disagreement: reduced weight
+Kris Dunn  # T16 | V+0.0/wk | 17.9/g | cal 17.1/g | ECR 253 | 4 G 30.4/g -> 22.2/g | 77 GP | season 1376 FP | last 22.6 (82)
+Isaiah Collier  # T16 | V+0.0/wk | 24.0/g | cal 24.1/g | ECR 154 | 5 G 20.8/g -> 22.7/g | 73 GP | season 1749 FP | last 30.5 (59)
+Oso Ighodaro  # T16 | V+0.0/wk | 22.5/g | cal 22.3/g | ECR 212 | 1 G 17.5/g -> 21.7/g | 79 GP | season 1774 FP | last 21.5 (82) | ECR disagreement: reduced weight
+Kingston Flemings  # T16 | V+0.0/wk | 26.8/g | cal 25.0/g | ECR 277 | 5 G 18.7/g -> 22.2/g | 75 GP | season 2009 FP | last n/a
+Rui Hachimura  # T16 | V+0.0/wk | 25.2/g | cal 25.3/g | ECR 138 | 3 G 15.7/g -> 22.2/g | 75 GP | season 1888 FP | last 21.3 (68) | + minutes w/ Ingram, Strus out | ECR disagreement: reduced weight
+Jaylon Tyson  # T16 | V+0.0/wk | 24.1/g | cal 23.9/g | ECR 193 | 4 G 20.6/g -> 22.7/g | 70 GP | season 1684 FP | last 27.9 (66) | ECR disagreement: reduced weight
+Egor Demin  # T16 | V+0.0/wk | 25.8/g | ECR 142 | 4 G 15.6/g -> 21.9/g | 75 GP | season 1933 FP | last 22.4 (52)
+Mitchell Robinson  # T16 | V+0.0/wk | 27.2/g | cal 26.7/g | ECR 207 | 4 G 16.0/g -> 22.6/g | 70 GP | season 1903 FP | last 25.9 (60) | ECR disagreement: reduced weight
+Aaron Wiggins  # T16 | V+0.0/wk | 16.6/g | cal 16.3/g | ECR 248 | 5 G 28.6/g -> 21.7/g | 75 GP | season 1247 FP | last 19.3 (65)
+De'Anthony Melton  # T16 | V+0.0/wk | 22.0/g | cal 21.6/g | ECR 247 | 5 G 22.6/g -> 22.0/g | 72 GP | season 1585 FP | last 24.5 (49) | ECR disagreement: reduced weight
+Bennedict Mathurin  # T16 | V+0.0/wk | 25.9/g | cal 26.4/g | ECR 121 | 4 G 14.2/g -> 21.7/g | 73 GP | season 1891 FP | last 32.9 (54) | ECR disagreement: reduced weight | ECR review: RISK source regression: 25.9/g vs last 32.9; strong custom premium partly offsets it
+T.J. McConnell  # T16 | V+0.0/wk | 21.7/g | cal 21.5/g | ECR 203 | 74 GP | season 1606 FP | last 24.9 (56)
+Jaxson Hayes  # T16 | V+0.0/wk | 15.3/g | ECR ? | 4 G 32.4/g -> 21.8/g | 71 GP | season 1085 FP | last 20.1 (66)
+Nikola Vucevic  # T16 | V+0.0/wk | 28.2/g | cal 28.3/g | ECR 119 | 4 G 9.4/g -> 21.1/g | 75 GP | season 2117 FP | last 37.1 (64) | ECR disagreement: reduced weight
+Isaiah Jackson  # T16 | V+0.0/wk | 20.5/g | ECR 215 | 4 G 22.5/g -> 21.2/g | 73 GP | season 1496 FP | last 19.8 (55) | + started over Lopez | ECR disagreement: reduced weight
+Deandre Ayton  # T16 | V+0.0/wk | 25.0/g | ECR 150 | 5 G 16.9/g -> 21.5/g | 71 GP | season 1774 FP | last 31.2 (72) | - Sarr back | ECR disagreement: reduced weight
+Kelly Oubre Jr.  # T16 | V+0.0/wk | 23.8/g | ECR 168 | 5 G 17.8/g -> 21.2/g | 73 GP | season 1735 FP | last 29.2 (50) | ECR disagreement: reduced weight
+Jeremiah Fears  # T16 | V+0.0/wk | 25.3/g | ECR 151 | 4 G 12.2/g -> 20.4/g | 78 GP | season 1976 FP | last 27.5 (82) | ECR disagreement: reduced weight
+Cason Wallace  # T16 | V+0.0/wk | 22.4/g | ECR 149 | 3 G 16.0/g -> 20.4/g | 77 GP | season 1721 FP | last 23.2 (77)
+Scotty Pippen Jr.  # T16 | V+0.0/wk | 23.7/g | ECR 156 | 4 G 17.0/g -> 21.1/g | 71 GP | season 1681 FP | last 25.8 (10) | ECR disagreement: reduced weight
+Collin Murray-Boyles  # T16 | V+0.0/wk | 21.9/g | cal 22.0/g | ECR 158 | 4 G 19.2/g -> 20.9/g | 72 GP | season 1578 FP | last 24.1 (57) | ECR disagreement: reduced weight
+Danny Wolf  # T16 | V+0.0/wk | 22.0/g | ECR ? | 1 G 11.0/g -> 20.5/g | 75 GP | season 1647 FP | last 21.6 (57)
+Andre Drummond  # T16 | V+0.0/wk | 20.5/g | cal 20.4/g | ECR 232 | 5 G 21.6/g -> 20.9/g | 69 GP | season 1417 FP | last 23.6 (63) | ECR disagreement: reduced weight
+Gui Santos  # T16 | V+0.0/wk | 18.8/g | cal 18.9/g | ECR 213 | 4 G 22.5/g -> 20.3/g | 73 GP | season 1373 FP | last 21.6 (68)
+Morez Johnson Jr.  # T16 | V+0.0/wk | 25.1/g | cal 24.7/g | ECR 233 | 5 G 13.4/g -> 19.8/g | 75 GP | season 1882 FP | last n/a | ECR disagreement: reduced weight
+Luke Kennard  # T16 | V+0.0/wk | 18.7/g | ECR ? | 2 G 22.5/g -> 19.6/g | 76 GP | season 1421 FP | last 19.1 (78)
+Tristan da Silva  # T16 | V+0.0/wk | 15.5/g | cal 15.0/g | ECR 268 | 4 G 26.2/g -> 19.3/g | 78 GP | season 1210 FP | last 21.6 (77)
+Anfernee Simons  # T16 | V+0.0/wk | 22.9/g | cal 23.0/g | ECR 159 | 5 G 16.1/g -> 20.0/g | 72 GP | season 1650 FP | last 24.5 (55) | ECR disagreement: reduced weight
+Jake LaRavia  # T16 | V+0.0/wk | 21.4/g | cal 21.3/g | ECR 211 | 4 G 15.9/g -> 19.2/g | 78 GP | season 1671 FP | last 21.4 (82)
+Sam Hauser  # T16 | V+0.0/wk | 19.8/g | cal 18.9/g | ECR 270 | 4 G 19.8/g -> 19.2/g | 78 GP | season 1543 FP | last 20.4 (78)
+Max Christie  # T16 | V+0.0/wk | 19.3/g | ECR ? | 5 G 18.7/g -> 19.1/g | 78 GP | season 1508 FP | last 23.9 (77)
+Max Strus  # T16 | V+0.0/wk | 20.1/g | ECR 204 | 70 GP | season 1404 FP | last 24.6 (12) | ECR disagreement: reduced weight | OUT uses bench, not IR
+Isaiah Stewart  # T16 | V+0.0/wk | 20.2/g | ECR 205 | 3 G 17.2/g -> 19.3/g | 73 GP | season 1475 FP | last 24.6 (58) | OUT uses bench, not IR
+Sam Merrill  # T16 | V+0.0/wk | 20.1/g | ECR ? | 4 G 18.9/g -> 19.6/g | 70 GP | season 1404 FP | last 24.9 (52)
+Malik Monk  # T16 | V+0.0/wk | 24.7/g | ECR 164 | 3 G 6.5/g -> 18.9/g | 73 GP | season 1805 FP | last 23.0 (62) | ECR disagreement: reduced weight
+Al Horford  # T16 | V+0.0/wk | 22.7/g | cal 21.8/g | ECR 216 | 4 G 16.0/g -> 19.6/g | 68 GP | season 1541 FP | last 24.6 (45)
+Mark Williams  # T16 | V+0.0/wk | 29.3/g | cal 29.2/g | ECR 165 | 29 GP | season 851 FP | last 31.8 (60) | ECR disagreement: reduced weight | OUT uses bench, not IR
+Jamal Shead  # T16 | V+0.0/wk | 18.7/g | cal 18.0/g | ECR 257 | 4 G 17.4/g -> 17.8/g | 80 GP | season 1495 FP | last 20.2 (82) | ECR disagreement: reduced weight
+Khaman Maluach  # T16 | V+0.0/wk | 15.6/g | cal 15.9/g | ECR 169 | 3 G 24.3/g -> 18.6/g | 72 GP | season 1120 FP | last 9.1 (46) | ECR disagreement: reduced weight
+Scoot Henderson  # T16 | V+0.0/wk | 23.0/g | cal 23.2/g | ECR 157 | 3 G 7.3/g -> 18.2/g | 72 GP | season 1657 FP | last 26.2 (30) | ECR disagreement: reduced weight
+Jared McCain  # T16 | V+0.0/wk | 18.1/g | cal 18.6/g | ECR 191 | 5 G 17.0/g -> 17.9/g | 74 GP | season 1338 FP | last 14.8 (67)
+Tim Hardaway Jr.  # T16 | V+0.0/wk | 20.4/g | ECR ? | 5 G 13.1/g -> 17.3/g | 79 GP | season 1615 FP | last 24.1 (80)
+Brice Sensabaugh  # T16 | V+0.0/wk | 19.9/g | cal 17.9/g | ECR 265 | 5 G 17.3/g -> 17.7/g | 75 GP | season 1496 FP | last 25.3 (75)
+Ryan Kalkbrenner  # T16 | V+0.0/wk | 19.3/g | cal 17.3/g | ECR 281 | 5 G 18.2/g -> 17.7/g | 74 GP | season 1428 FP | last 23.5 (69)
+Kevin Huerter  # T16 | V+0.0/wk | 20.8/g | cal 19.9/g | ECR 229 | 5 G 14.3/g -> 17.5/g | 74 GP | season 1540 FP | last 23.1 (69)
+Bub Carrington  # T16 | V+0.0/wk | 18.6/g | cal 19.0/g | ECR 190 | 5 G 13.2/g -> 16.5/g | 80 GP | season 1489 FP | last 23.7 (82)
+Klay Thompson  # T16 | V+0.0/wk | 21.5/g | cal 21.2/g | ECR 197 | 5 G 11.6/g -> 17.0/g | 74 GP | season 1590 FP | last 18.6 (69)
+Isaiah Joe  # T16 | V+0.0/wk | 20.7/g | cal 18.7/g | ECR 261 | 3 G 12.2/g -> 16.7/g | 75 GP | season 1554 FP | last 21.7 (71)
+Marvin Bagley III  # T16 | V+0.0/wk | 20.0/g | cal 19.3/g | ECR 244 | 4 G 13.6/g -> 17.1/g | 70 GP | season 1398 FP | last 26.2 (60)
+Kyle Filipowski  # T16 | V+0.0/wk | 23.9/g | ECR 184 | 3 G -0.7/g -> 16.1/g | 76 GP | season 1813 FP | last 30.0 (77)
+Jose Alvarado  # T16 | V+0.0/wk | 17.3/g | ECR ? | 2 G 14.0/g -> 16.5/g | 72 GP | season 1243 FP | last 19.2 (69)
+Nate Ament  # T16 | V+0.0/wk | 19.1/g | ECR ? | 3 G 9.5/g -> 16.1/g | 74 GP | season 1415 FP | last n/a
+Herbert Jones  # T16 | V+0.0/wk | 21.2/g | cal 21.3/g | ECR 167 | 4 G 8.1/g -> 16.3/g | 71 GP | season 1506 FP | last 22.4 (56)
+Jordan Poole  # T16 | V+0.0/wk | 20.3/g | cal 20.5/g | ECR 155 | 4 G 18.4/g -> 19.7/g | 47 GP | season 953 FP | last 23.1 (39) | ECR disagreement: reduced weight
+Royce O'Neale  # T16 | V+0.0/wk | 19.9/g | cal 19.7/g | ECR 221 | 5 G 10.1/g -> 15.5/g | 77 GP | season 1531 FP | last 25.1 (78)
+Jaylin Williams  # T16 | V+0.0/wk | 19.5/g | cal 19.3/g | ECR 241 | 5 G 11.5/g -> 15.9/g | 73 GP | season 1426 FP | last 22.5 (65) | ECR disagreement: reduced weight
+Goga Bitadze  # T16 | V+0.0/wk | 16.7/g | ECR ? | 3 G 14.5/g -> 16.0/g | 72 GP | season 1200 FP | last 20.6 (64)
+Noah Clowney  # T16 | V+0.0/wk | 16.1/g | cal 14.9/g | ECR 278 | 4 G 16.8/g -> 15.6/g | 74 GP | season 1191 FP | last 24.4 (66)
+Grant Williams  # T16 | V+0.0/wk | 15.7/g | ECR ? | 71 GP | season 1115 FP | last 18.3 (36)
+Ryan Dunn  # T16 | V+0.0/wk | 16.1/g | ECR ? | 3 G 13.2/g -> 15.2/g | 75 GP | season 1209 FP | last 16.9 (70)
+Ronald Holland II  # T16 | V+0.0/wk | 15.3/g | ECR ? | 5 G 13.7/g -> 14.6/g | 79 GP | season 1206 FP | last n/a
+Jarace Walker  # T16 | V+0.0/wk | 15.8/g | ECR ? | 5 G 14.6/g -> 15.3/g | 71 GP | season 1122 FP | last 24.8 (76)
+Tristan Vukcevic  # T16 | V+0.0/wk | 15.6/g | ECR ? | 67 GP | season 1044 FP | last 18.1 (49) | OUT uses bench, not IR
+Patrick Williams  # T16 | V+0.0/wk | 14.7/g | cal 13.9/g | ECR 274 | 75 GP | season 1104 FP | last 15.6 (72)
+Baylor Scheierman  # T16 | V+0.0/wk | 17.1/g | ECR ? | 4 G 8.8/g -> 13.9/g | 75 GP | season 1282 FP | last 15.5 (77)
+Mike Conley  # T16 | V+0.0/wk | 15.4/g | cal 14.5/g | ECR 260 | 1 G 13.0/g -> 14.3/g | 67 GP | season 1033 FP | last 14.2 (54)
+Luke Kornet  # T16 | V+0.0/wk | 16.9/g | ECR ? | 5 G 9.0/g -> 13.5/g | 75 GP | season 1268 FP | last 24.7 (68)
+Khris Middleton  # T16 | V+0.0/wk | 18.7/g | cal 18.8/g | ECR 219 | 4 G 6.0/g -> 13.9/g | 66 GP | season 1234 FP | last 21.3 (63) | ECR disagreement: reduced weight
+Adem Bona  # T16 | V+0.0/wk | 14.1/g | ECR ? | 5 G 11.0/g -> 12.7/g | 74 GP | season 1040 FP | last 15.8 (71)
+Jarred Vanderbilt  # T16 | V+0.0/wk | 13.8/g | ECR ? | 1 G 6.5/g -> 12.9/g | 71 GP | season 982 FP | last 14.9 (65)
+Mouhamed Gueye  # T16 | V+0.0/wk | 12.5/g | ECR ? | 74 GP | season 924 FP | last 14.3 (77) | OUT uses bench, not IR
+Steven Adams  # T16 | V+0.0/wk | 12.8/g | ECR ? | 1 G 11.0/g -> 12.6/g | 71 GP | season 908 FP | last 23.3 (32)
+Nikola Jovic  # T16 | V+0.0/wk | 16.1/g | cal 16.6/g | ECR 210 | 4 G 11.0/g -> 14.5/g | 50 GP | season 804 FP | last 16.3 (47)
+Kyle Anderson  # T16 | V+0.0/wk | 15.8/g | ECR ? | 3 G 4.7/g -> 12.3/g | 70 GP | season 1106 FP | last 20.5 (43)
+Kevon Looney  # T16 | V+0.0/wk | 15.6/g | ECR ? | 4 G 6.0/g -> 12.0/g | 72 GP | season 1126 FP | last 15.5 (21)
+Leonard Miller  # T16 | V+0.0/wk | 11.4/g | ECR ? | 5 G 18.9/g -> 14.6/g | 45 GP | season 511 FP | last 17.4 (46)
+Ben Sheppard  # T16 | V+0.0/wk | 13.0/g | ECR ? | 1 G 4.5/g -> 11.9/g | 70 GP | season 911 FP | last 16.7 (65)
+Clint Capela  # T16 | V+0.0/wk | 14.9/g | ECR 250 | 4 G 13.6/g -> 14.4/g | 45 GP | season 672 FP | last 14.8 (75)
+Zach Collins  # T16 | V+0.0/wk | 15.4/g | cal 14.5/g | ECR 264 | 3 G 5.7/g -> 11.7/g | 67 GP | season 1031 FP | last 23.3 (10)
+Shaedon Sharpe  # T16 | V+0.0/wk | 22.5/g | cal 22.6/g | ECR 162 | 18 GP | season 405 FP | last 33.0 (50) | ECR disagreement: reduced weight | OUT uses bench, not IR
+Trayce Jackson-Davis  # T16 | V+0.0/wk | 13.8/g | cal 13.2/g | ECR 272 | 4 G 13.4/g -> 13.3/g | 47 GP | season 647 FP | last 10.4 (53)
+Thomas Bryant  # T16 | V+0.0/wk | 11.7/g | ECR ? | 48 GP | season 562 FP | last 14.8 (60)
+Jericho Sims  # T16 | V+0.0/wk | 12.9/g | ECR ? | 2 G 0.0/g -> 9.9/g | 46 GP | season 593 FP | last 17.6 (67)
+Jonathan Isaac  # T16 | V+0.0/wk | 9.3/g | ECR ? | 42 GP | season 390 FP | last 9.1 (52)
+Jonathan Mogbo  # T16 | V+0.0/wk | 9.6/g | ECR ? | 3 G 6.8/g -> 8.8/g | 47 GP | season 453 FP | last 6.0 (40)
 Sandro Mamukelashvili  # NO PROJECTION | ECR 181 | NO PROJECTION | sleeper#200
 Maxime Raynaud  # NO PROJECTION | ECR 192 | NO PROJECTION | sleeper#169 | Out Knee Dislocated | OUT uses bench, not IR
 Tre Johnson  # NO PROJECTION | ECR 198 | NO PROJECTION | sleeper#197
