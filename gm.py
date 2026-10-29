@@ -429,6 +429,13 @@ def footer(d):
           f"(refetched when 3 h old; --refresh to force); board.txt V/FP from {basis}"
           + (f"; play chances from the official NBA injury report {REPORT['at']} where it lists a game" if REPORT["at"] else "")
           + f"; today={d['today']}.")
+    m = re.search(r"week (\d+)$", basis)
+    through = int(m.group(1)) if m else 0 if basis.startswith("frozen") else None
+    # The live week comes from today's date, not --week (a future or past week would misname the last finished one).
+    last = (week_of(d.get("sched"), d["today"]) or d.get("week") or 0) - 1
+    if through is not None and through < last:
+        print(f"NOTE: board not blended through week {last} (last finished); "
+              "run python3 rebuild_board.py --blend --write.")  # #19
 
 
 # ---------- small helpers ----------
@@ -3564,6 +3571,13 @@ def run_tests():
                "prior + n/(n+6.5)*(actual - prior) after n games (210 players, games through 2026-10-27); board-actuals.csv.\n")
     assert board_basis(blended, sched2) == "blended through week 2" and board_basis(blended, None) == "blended through Oct 27"
     assert board_basis(blended.split("\n")[0], sched2) == "frozen Oct 19"
+    # #19: a board not blended through the last finished week says so.
+    from unittest.mock import mock_open, patch
+    with patch("builtins.open", mock_open(read_data=blended)), contextlib.redirect_stdout(io.StringIO()) as out:
+        footer({"sched": sched2, "week": 4, "today": datetime.date(2026, 11, 9)})
+        footer({"sched": sched2, "week": 3, "today": datetime.date(2026, 11, 2)})
+        footer({"sched": sched2, "week": 4, "today": datetime.date(2026, 10, 28)})  # --week 4 during week 2: no note
+    assert out.getvalue().count("board not blended through week 3") == 1, out.getvalue()
     # ... and when the player tags were fetched (regression: "the daily players-*.json" hid a 9-hour-old file).
     import tempfile
     with tempfile.NamedTemporaryFile(suffix=".json") as tags:
