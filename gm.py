@@ -888,6 +888,9 @@ def week_context(d, sleeper_base=False, rid=MY_ROSTER):
             games[p].update(override)
     fpg = {p: fpg_of(d, p) for p in active}
     exp = {p: wait_value(fpg[p], [games[p][day] for day in left if day in games[p]]) for p in active}
+    for p, x in (d.get("standing") or {}).items():  # lock's team comparison: a posted score he can still lock
+        if p in exp:
+            exp[p] = max(exp[p], x)
     sleeper = {i: p for i, p in enumerate(r.get("starters") or []) if p in active}
     locked = set(d.get("locked") or []) & set(active)  # pids, from locked_pids
     base = {i: p for i, p in sleeper.items() if p in locked}  # a locked player stays in his slot; the rest is re-optimized
@@ -1353,6 +1356,8 @@ def cmd_lock(d, a):
             if (p != pid and last in box.get(p, {}) and (last < d["today"] or final(last, team))
                     and observed_start(d, r["roster_id"], p, last) is not False):
                 standing[p] = box[p][last]
+
+        dw, dl = dict(dw, standing=standing), dict(dl, standing=standing)
 
         def wait_total(sb):
             ww = week_context(dw, sb)
@@ -2489,6 +2494,7 @@ def test_whole_team():
             contextlib.redirect_stdout(io.StringIO()) as out:
         cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
     assert delta(out.getvalue()) <= 0, out.getvalue()
+    wait0 = float(re.search(r"wait → ([\d.]+)", out.getvalue()).group(1))
     # Codex P2s: a failed fetch withholds the comparison; a Wed DNP voids S2's Tue score (no standing 100).
     with patch(__name__ + ".box_scores", side_effect=OSError("offline")), contextlib.redirect_stdout(io.StringIO()) as out:
         cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
@@ -2508,6 +2514,14 @@ def test_whole_team():
             cmd_lock(d3, argparse.Namespace(**{**vars(args), "score": 20.0, "game": tue}))
         deltas.append(re.search(r"whole team .*", out.getvalue()).group(0))
     assert deltas[0] == deltas[1], deltas
+    # Codex P2: replanning keeps S2's standing 100 while still starting a much better bench C (C2) over S6.
+    dd["sched"].append({"week": 1, "date": thu.isoformat(), "home": {"team": "Tc2"}, "away": {"team": "Zc2"}})
+    dd["pool"]["c2"], dd["vals"]["c2"] = {"full_name": "C2", "team": "Tc2", "fantasy_positions": ["C"]}, (10.0, 90.0)
+    dd["rosters"][0]["players"].append("c2")
+    with patch(__name__ + ".box_scores", return_value={"s0": {wed: 20.0}, "s2": {wed: 100.0}}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
+    assert delta(out.getvalue()) < -10 and float(re.search(r"wait → ([\d.]+)", out.getvalue()).group(1)) > wait0 + 30, out.getvalue()
     # Codex P2: a departed player's recorded lock keeps its slot's score in both totals.
     import tempfile
     totals = lambda o: re.search(r"lock 100.0 → ([\d.]+); wait → ([\d.]+)", o).groups()
