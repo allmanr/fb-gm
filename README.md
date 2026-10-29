@@ -44,6 +44,10 @@ After you lock a score in Sleeper, record it once: `./gm.py lock "Jarrett Allen"
 
 Record the opponent's locks the same way, with the score Sleeper's matchup view shows: `./gm.py lock "<their player>" 48 --commit` (exact names beat partial ones; an Owner player's name wins a tie, and the confirmation names the team). In the live week, `lock` and `week` set each slot's line to the score at which locking maximizes P(win H2H) + P(beat median), given every team's current state ([backtest](reports/2026-10-20/winodds-locks.md)). The more of the opponent's locks you record, the sharper that state is. As a favourite the lines drop (bank a safe score); as an underdog they rise (wait for upside). The effect is mostly late in a close week, and a decided matchup keeps the EV line. `--ev` prints the plain EV lines.
 
+Run a live command after setting your lineup and before tip. Each live run except `changes --no-write` records starting-lineup observations under `private/state/lineups-<season>-w<week>.json`. Pending `./gm.py lock` calls require an observation before that game's tip with no observed benching afterward. Without it, the tool prints "eligibility unverified" and withholds the verdict. First runs cannot establish eligibility for games already played. `--date`, historical-week runs and `review` do not record observations.
+
+Moves made entirely between tool runs remain invisible. Confirm the score is still lockable in Sleeper before acting. A manual `lock "<player>" <score>` check assumes you have confirmed eligibility. The win model also excludes unverified reported scores from its fixed-score estimates, using remaining games instead; API scores that retain an earlier game after a later game finishes also remain usable, and recorded locks remain exact. API points can show an earlier locked game once a player plays again, but automatic detection of those locks remains [#4](https://github.com/allmanr/fb-gm/issues/4).
+
 Play chances come from the official NBA injury report for the games it lists (Probable 75%, Questionable 50%, Doubtful 25%, Out 0) and otherwise from Sleeper's tag: DTD or GTD is 50% for the next game and 75% for later games, Out is 0 all week. `gm.py` says which source it used. Use current injury news and `lock --play P` when those assumptions do not fit.
 
 Lock calls consider returning bench players even when the current starter is a rotated-in feeder and both play on the same date. `--play` and `--remaining` change only the named player's future rolls, not the other slot options. With a schedule, `--remaining N` keeps his last N upcoming game dates (skipping the earliest ruled-out games).
@@ -103,7 +107,7 @@ git clone git@github.com:<you>/<private-repo>.git private
 | `private/config.json` | League and Sleeper user IDs |
 | `private/notes/` | Recommendations log and manager profiles |
 | `private/draft-night.md`, `private/reports/` | Draft result and retrospective, scouting, cheat sheets, week scouts, playoff trade targets, the FantasyPros source export |
-| `private/state/` | `gm.py changes` snapshot and `lock --commit` records (written by `gm.py`) |
+| `private/state/` | `gm.py changes` snapshot, `lock --commit` records and live starting-lineup observations (written by `gm.py`) |
 | `private/needles.txt` | League name, IDs, usernames and team names that `scripts/check.sh` refuses in public commits |
 
 Back up after a session that changed it: `git -C private add -A && git -C private commit -m notes && git -C private push`. The tools and their tests run without `private/` except for live league commands, which need `config.json`.
