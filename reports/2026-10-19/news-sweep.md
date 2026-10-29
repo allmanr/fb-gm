@@ -1,6 +1,6 @@
 # News sweep: board top 100 (as of Oct 19, 2026, evening)
 
-> Archived research. Rankings, injury claims, simulations, and pick advice below are historical. Use the [current league rules](../../prep-notes.md#league-rules) and a fresh `./draft.py` run for decisions. OUT players use a bench spot in this league. Old season-total scores and survival percentages are retired.
+> Archived research. Rankings, injury claims, simulations, and pick advice below are historical. Use the [current league rules](../../README.md#league-rules) and a fresh `./draft.py` run for decisions. OUT players use a bench spot in this league. Old season-total scores and survival percentages are retired.
 
 How I checked: league-wide injury reports (ESPN, CBS, Covers, all updated Oct 19), Fantasy Alarm's season-start injury roundup (Oct 15), NBC Sports player news (Oct 19), and player-specific searches for about 45 of the top 100.
 **Teams:** every team on the board matched current reporting (Giannis MIA, Herro/Ware MIL, LaMelo MIN, Kawhi TOR, Morant POR, J. Brown PHI, P. George BOS, Kessler LAL, Randle BKN, Davis WAS, JJJ UTH, Garland/Ingram LAC, LeBron PHI). No team corrections needed.

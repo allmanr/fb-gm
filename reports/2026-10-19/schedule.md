@@ -1,6 +1,6 @@
 # 2026-27 NBA schedule by Sleeper fantasy week
 
-> Archived research. Rankings, injury claims, simulations, and pick advice below are historical. Use the [current league rules](../../prep-notes.md#league-rules) and a fresh `./draft.py` run for decisions. OUT players use a bench spot in this league. Old season-total scores and survival percentages are retired.
+> Archived research. Rankings, injury claims, simulations, and pick advice below are historical. Use the [current league rules](../../README.md#league-rules) and a fresh `./draft.py` run for decisions. OUT players use a bench spot in this league. Old season-total scores and survival percentages are retired.
 
 Source: Sleeper schedule API `api.sleeper.com/schedule/nba/regular/2026` (1,200 games, 80/team; 2 games/team TBD after NBA Cup group stage, all in the Dec 4-11 gap = weeks 7-8). Weeks are Mon-Sun.
 

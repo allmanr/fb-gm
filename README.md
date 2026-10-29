@@ -11,20 +11,33 @@ mkdir -p private && cp config.example.json private/config.json   # your Sleeper 
 ./gm.py roster                                                    # validates the league, or prints REFUSING
 ```
 
-The tools assume this league's scoring, slots and IR rules (see [CLAUDE.md](CLAUDE.md)); `gm.py` refuses a league whose settings differ. Install the pre-commit check once per clone with the line at the top of `scripts/check.sh`.
+The tools assume this league's scoring, slots and IR rules (see [League rules](#league-rules)); `gm.py` refuses a league whose settings differ. Install the pre-commit check once per clone with the line at the top of `scripts/check.sh`.
 
 ## Your roster
 
 Run `./gm.py roster` for the live lineup, tags, board value and this week's games. The roster at draft close, every team's picks and the projected standings are in the private draft retrospective (`private/reports/2026-10-19/draft-retro.md`).
 
-## Weekly Lock-In & roster management
+## League rules
 
-In Sleeper Lock-In mode, each starting slot counts **one locked game score per week**:
+This is the single source for the league's operational rules. `gm.py` validates the scoring, slots and IR rules on every run and prints `REFUSING` if they change.
+
+- **Scoring:** `pts +1, reb +1.5, ast +2, stl +2.5, blk +2.5, tpm +1, fgm +2, fga -1, ftm +1, ftmi -1, to -2`. Misses and turnovers cost points: efficient bigs and high-assist, low-turnover guards gain; inefficient volume shooters lose. Sleeper's `search_rank` is generic, not this scoring.
+- **Format:** 10-team redraft; weekly head-to-head plus a game against the league median; weeks 1–20, then playoffs in weeks 21–23 (6 teams, top 2 bye). Trades sit in a 2-day review. Trade deadline week 18 (Sleeper's help text contradicts itself on whether that means about 4 weeks earlier; confirm the date in League → Settings before relying on it).
+- **Lineup:** `PG, SG, G, SF, PF, F, C, UTIL, UTIL` plus 5 bench. Slots follow Sleeper `fantasy_positions` (`gm.py roster` prints them); multi-position players are worth more for rotation fit, though the board adds no blanket bonus (prep-notes [Board and model rules](prep-notes.md#board-and-model-rules)).
+- **IR:** 1 slot; it accepts Sleeper status `IR`, `Sus`, `DNR` or `Out` (`reserve_allow_out` is `1`, changed Oct 22 from 2 slots without Out).
+- **Waivers:** rolling priority (`waiver_type` 0; a FAAB league reports 2, checked Oct 19). A successful claim sends you to the back (`gm.py fa` prints our position). Dropped players sit on waivers about 47 hours. `waiver_after_game_start` is on: once a free agent's team tips this week he becomes a waiver claim until the waiver clear day (`waiver_day_of_week` 0; exact day unverified), so he's an instant add only before his team's first game of the week. `gm.py fa` tags these players `WAIVERS (played <day>)` and leaves them out of streams.
+
+### Lock-In
+
+In Sleeper Lock-In mode, each starting slot counts **one locked game score per week** ([Sleeper's rules](https://support.sleeper.com/en/articles/6522833-lock-in-mode-details)):
 
 - **Start before tip-off to earn a roll:** A player must be in a starting slot when their NBA game begins for that game's score to be eligible to lock.
 - **Rotate bench players through unlocked slots:** Before locking a slot for the week, move bench players with early-week games into compatible starting slots (`PG/SG/G/SF/PF/F/C/UTIL`). If they boom, lock the score; if not, swap your next starter back in before their game starts.
-- **Lock before the slot's next tip:** You must lock a finished game before that player's next NBA game tips off, and before you move anyone else into his slot (a benched player's score can't be locked). Locks are irreversible. `gm.py` prints each deadline in CT from ESPN's tip times. If you never lock a slot, Sleeper counts the starter's final game of the week (which is `0` if they sit).
-- **IR rule:** Your 1 IR slot accepts Sleeper status `IR`, `Sus`, `DNR` or `Out` (`reserve_allow_out` is `1`, changed Oct 22).
+- **Lock before the slot's next tip:** You must lock a finished game before the slot's next tip: the earlier of that player's next game and the next game the plan moves someone else into his slot (a benched player's score can't be locked). Locks are irreversible. `gm.py` prints each deadline in CT from ESPN's tip times, date-level with a NOTE when they're missing (check the tip time in Sleeper). If you never lock a slot, Sleeper counts the starter's final game of the week (which is `0` if they sit).
+- **A lock uses up the slot:** You can lock only a game the player started, and a locked player can't return to the bench for the rest of the week. Decide a finished game before benching the player.
+- **Via locks:** A bench player's score can also close a cheaper idle starter's slot: lock him where he is, move his slot's next player into that slot before its next tip, and bench that slot's starter. Rank the night's bench scores; the best takes the cheapest line it reaches ([backtest](reports/2026-10-21/pooled-locks.md): +0.80 wins/20 wk).
+- **Adds and trades:** only later games count for the new team; locked scores stay with the original team.
+- **Seeing locks:** Sleeper's API has no lock flag. A starter's `starters_points` show his locked game once he has played again, and they follow the player when he changes starting slots (checked Oct 23); a lock on his latest game is invisible until then. That's why the agent asks which locks you made.
 
 ## In-season workflow
 
@@ -88,8 +101,8 @@ Note: `./draft.py` reads the completed draft picks (`/draft/<draft_id>/picks`), 
 
 ## Find the current notes
 
-- [Project notes](prep-notes.md#league-rules): Lock-In rules and model documentation; [current status](prep-notes.md#status-start-of-season-oct-20) with what's open and where it's tracked.
-- [GM charter](CLAUDE.md): league rules, ground rules, tools, staff and notes rules for the agent.
+- [Project notes](prep-notes.md): board and model rules, data sources, board maintenance, and the current Status section with what's open and where it's tracked.
+- [GM charter](CLAUDE.md): the agent's ground rules, task routing, repository rules and review guidelines.
 - [Lock-In backtest](reports/2026-10-20/lockin-backtest.md): lock thresholds, DNP correction and bench value tested on 2025-26 games. [Win-odds lock backtest](reports/2026-10-20/winodds-locks.md): +0.24 wins/season, below the build gate but built at the Owner's request as the matchup lines ([PR #8](https://github.com/allmanr/fb-gm/pull/8)). [Playoff schedules](reports/2026-10-20/playoff-schedule.md), [Sleeper rules check](reports/2026-10-20/sleeper-rules.md), [pooled bench locks](reports/2026-10-21/pooled-locks.md), [late-season availability](reports/2026-10-21/late-season.md) (playoff trade weighting) and [per-game context means](reports/2026-10-21/context-means.md) (closed #32).
 - [Open work](https://github.com/allmanr/fb-gm/issues): GitHub issues, each with impact and acceptance criteria. Issue and PR numbers up to #32 in older notes, reports and code comments refer to the private pre-split repository (allmanr/fb-gm-private); its open issues moved here as #2–#6 (#7 → #3, #8 → #4, #12 → #5, #5 → #2, #31 → #6).
 - [Research archive](reports/README.md): the board's pre-draft provenance.
@@ -110,4 +123,4 @@ git clone git@github.com:<you>/<private-repo>.git private
 | `private/state/` | `gm.py changes` snapshot, `lock --commit` records and live starting-lineup observations (written by `gm.py`) |
 | `private/needles.txt` | League name, IDs, usernames and team names that `scripts/check.sh` refuses in public commits |
 
-Back up after a session that changed it: `git -C private add -A && git -C private commit -m notes && git -C private push`. The tools and their tests run without `private/` except for live league commands, which need `config.json`.
+Back up after a session that changed it (agents ask the Owner first): `git -C private add -A && git -C private commit -m notes && git -C private push`. The tools and their tests run without `private/` except for live league commands, which need `config.json`.

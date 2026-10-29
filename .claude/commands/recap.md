@@ -12,6 +12,6 @@ Weekly recap for week $ARGUMENTS (the week that just ended; run it after Sunday'
 5. **League:** call `league-watcher` for the week's moves and proposed manager-note lines. Check them, then add dated facts to `private/notes/managers.md`.
 6. **Recommendations:** for each open entry in `private/notes/recommendations.md`, record the Owner's decision (ask if unknown) and the outcome so far. Judge the decision separately from the result. Append `review`'s outcome line as the week's execution entry.
 
-7. **Back up** `private/` (CLAUDE.md, Private data).
+7. **Back up** `private/`: ask the Owner, and on a yes run `git -C private add -A && git -C private commit -m "recap week N" && git -C private push`.
 
 End with the two or three things that matter for next week.
