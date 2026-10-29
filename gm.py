@@ -346,29 +346,33 @@ def load(a):
                      tips=tip_times(sched, days))  # past tips also establish pending-score eligibility
     if not a.date and week == d["state"]["week"] and a.cmd != "review" and not getattr(a, "no_write", False):
         path = os.path.join(STATE, f"lineups-{d['league']['season']}-w{week}.json")
-        d["lineup_since"] = observe_lineups(d["rosters"], datetime.datetime.utcnow(), path)
+        d["lineup_since"], d["lineup_runs"] = observe_lineups(d["rosters"], datetime.datetime.utcnow(), path)
     return d
 
 
 def observe_lineups(rosters, now, path):
-    """Keep each current starter's first observation since his last observed absence from the starting lineup."""
+    """-> ({rid: {pid: first observation of each current starter since his last observed absence}}, [every run's time]).
+    The run times show when an absence was observed: a run between a game's tip and his streak's start saw him out."""
     try:
         old = json.load(open(path))
-        if not isinstance(old, dict) or any(not isinstance(v, dict) for v in old.values()):
+        if not isinstance(old, dict) or "since" not in old:  # pre-run-log format: {rid: {pid: since}}, no runs known
+            old = {"since": old, "runs": []}
+        since, runs = old["since"], old["runs"]
+        if not isinstance(since, dict) or not isinstance(runs, list) or any(not isinstance(v, dict) for v in since.values()):
             raise ValueError("invalid lineup history")
-        for roster in old.values():
-            for since in roster.values():
-                stamp = datetime.datetime.fromisoformat(since)
-                if stamp.tzinfo is not None or stamp > now:
-                    raise ValueError("invalid observation time")
-    except (OSError, ValueError, TypeError):
-        old = {}
-    new = {str(r["roster_id"]): {p: old.get(str(r["roster_id"]), {}).get(p, now.isoformat())
+        for stamp in runs + [x for roster in since.values() for x in roster.values()]:
+            stamp = datetime.datetime.fromisoformat(stamp)
+            if stamp.tzinfo is not None or stamp > now:
+                raise ValueError("invalid observation time")
+    except (OSError, ValueError, TypeError, AttributeError):
+        since, runs = {}, []
+    new = {str(r["roster_id"]): {p: since.get(str(r["roster_id"]), {}).get(p, now.isoformat())
                                for p in r.get("starters") or [] if p != "0"} for r in rosters}
+    runs = runs + [now.isoformat()]
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path + ".tmp", "w") as f:
-            json.dump(new, f)
+            json.dump({"since": new, "runs": runs}, f)
         os.replace(path + ".tmp", path)
     except OSError as e:
         # A failed bench observation must not leave pre-bench evidence reusable on the next run.
@@ -382,23 +386,26 @@ def observe_lineups(rosters, now, path):
                     f.write("{}")
             except OSError:
                 sys.exit(f"Lineup history unsafe after save failure: remove {path} before running again.")
-        print(f"NOTE: lineup observations could not be saved ({e}); automatic lock eligibility unavailable.")
-        return {}
-    return {int(rid): players for rid, players in new.items()}
+        print(f"NOTE: lineup observations could not be saved ({e}); lock eligibility is unobserved this run.")
+        return {}, []
+    return {int(rid): players for rid, players in new.items()}, runs
 
 
 def observed_start(d, rid, pid, day):
-    """Observed starting before this game's tip, with no observed benching since. Gaps between runs are unknown."""
+    """True: observed starting before this game's tip, with no observed benching since. False: a run at or after the
+    tip saw him out of the starting lineup (benched, or played from the bench). None: no run in between, unknown (e.g.
+    the week's first run came after the tip); gaps between runs are always unknown."""
     since = (d.get("lineup_since") or {}).get(rid, {}).get(pid)
-    if not since:
-        return False
-    since = datetime.datetime.fromisoformat(since)
+    since = datetime.datetime.fromisoformat(since) if since else datetime.datetime.max
     # Compare UTC timestamps, never UTC calendar dates against the schedule's ET game dates.
+    # Without a tip, a start counts only if observed before the ET game date began, an absence only after it ended.
     tip = CLOCK["tips"].get((day, d["pool"].get(pid, {}).get("team")))
-    if tip:
-        return since < tip
-    # Without a tip, only an observation before the start of the ET game date is early enough.
-    return since < datetime.datetime.combine(day, datetime.time(4))
+    if since < (tip or datetime.datetime.combine(day, datetime.time(4))):
+        return True
+    out_from = tip or datetime.datetime.combine(day + datetime.timedelta(1), datetime.time(5))
+    if any(out_from <= datetime.datetime.fromisoformat(t) < since for t in d.get("lineup_runs") or []):
+        return False
+    return None
 
 
 def board_basis(text, sched):
@@ -589,18 +596,20 @@ def keep_slots(base, sleeper, fixed, pos):
     return base
 
 
-def rotation(slots, base, bench, games, days, pos, fpg, blocked=(), gone=()):
+def rotation(slots, base, bench, games, days, pos, fpg, blocked=(), gone=(), floor=None):
     """Day by day, put each bench player who plays (best first) into the idle-starter slot where his game
     adds the most expected locked score for the week. Locked (blocked) slots take no feeds, and a bench player
     whose game has tipped ((pid, day) in gone) can't be moved in.
 
-    base: {slot_index: pid}; bench: pids; games: {pid: {date: play chance}} (play_map). Returns {day: {slot_index: pid}}.
+    base: {slot_index: pid}; bench: pids; games: {pid: {date: play chance}} (play_map); floor: {slot_index: a standing
+    score the slot keeps unless its rolls beat it}. Returns {day: {slot_index: pid}}.
     """
     # ponytail: greedy by marginal gain, not a joint optimum; benching a playing starter is left to judgment.
     plan = {day: {} for day in days}
 
     def value(i):
-        return stop_value(slot_days(days, base.get(i), {day: plan[day][i] for day in days if i in plan[day]}, games, fpg))
+        return max((floor or {}).get(i, 0.0),
+                   stop_value(slot_days(days, base.get(i), {day: plan[day][i] for day in days if i in plan[day]}, games, fpg)))
 
     for day in days:
         for p in sorted((p for p in bench if day in games.get(p, ()) and (p, day) not in gone), key=lambda p: -fpg.get(p, 0)):
@@ -879,8 +888,13 @@ def week_context(d, sleeper_base=False, rid=MY_ROSTER):
     for p, override in d.get("game_overrides", {}).items():
         if p in games:
             games[p].update(override)
+    for p in set(active) - set(r.get("starters") or []):  # benched at tip: that game can't count in any slot
+        games[p].update({day: 0.0 for day in left if day in games[p] and tipped(day, pool.get(p, {}).get("team"))})
     fpg = {p: fpg_of(d, p) for p in active}
     exp = {p: wait_value(fpg[p], [games[p][day] for day in left if day in games[p]]) for p in active}
+    for p, x in (d.get("standing") or {}).items():  # lock's team comparison: a posted score he can still lock
+        if p in exp:
+            exp[p] = max(exp[p], x)
     sleeper = {i: p for i, p in enumerate(r.get("starters") or []) if p in active}
     locked = set(d.get("locked") or []) & set(active)  # pids, from locked_pids
     base = {i: p for i, p in sleeper.items() if p in locked}  # a locked player stays in his slot; the rest is re-optimized
@@ -896,7 +910,8 @@ def week_context(d, sleeper_base=False, rid=MY_ROSTER):
     bench = sorted((p for p in active if p not in starters and p not in locked), key=lambda p: -fpg[p])
     gone = {(p, day) for p in bench for day in left if day in games[p] and tipped(day, pool.get(p, {}).get("team"))}
     pos = {p: pos_of(pool, p) for p in active}
-    plan = rotation(SLOTS, base, bench, games, left, pos, fpg, blocked, gone)
+    standing = d.get("standing") or {}  # lock's team comparison: posted scores feeds must beat
+    plan = rotation(SLOTS, base, bench, games, left, pos, fpg, blocked, gone, {i: standing[p] for i, p in base.items() if p in standing})
     tips = {(p, day): CLOCK["tips"].get((day, pool.get(p, {}).get("team"))) for p in active for day in games[p]}
     extra = reuse(SLOTS, base, bench, games, left, pos, fpg, plan, tips, blocked, gone)
     return dict(blocked=blocked, tipped=gone, gain=gain, r=r, wg=wg, days=days, left=left, games=games, fpg=fpg, exp=exp, base=base, bench=bench, plan=plan,
@@ -910,6 +925,19 @@ def cmd_week(d, a):
         print("Schedule unavailable: no game grid or rotation plan. Use Sleeper's schedule view.")
         return footer(d)
     d["locked"] = locked_pids(d, a.locked)
+    for item in filter(str.strip, (getattr(a, "play", None) or "").split(",")):  # "Name=P": his play chance from today
+        name, _, p = item.rpartition("=")
+        pid = find_mine(d, find_roster(d, MY_ROSTER)["players"], name.strip())
+        try:
+            p = float(p)
+        except ValueError:
+            p = -1
+        if not name or not 0 <= p <= 1:
+            sys.exit(f"--play wants Name=P with P from 0 to 1, e.g. --play \"LeBron James=0.8\" (got {item!r}).")
+        d.setdefault("game_overrides", {})[pid] = {day: p for day in games_of(d, pid, week_games(d["sched"], d["week"])) if day >= d["today"]}
+        if p > 0 and out_all_week(status(d["pool"], pid)):  # news says he returns: drop the Out tag's zero FP/g
+            d["pool"] = {**d["pool"], pid: dict(d["pool"][pid], injury_status="")}
+        print(f"--play: {short(d['pool'], pid)} plays each game from today with chance {p:.2f}.")
     pool, w = d["pool"], week_context(d)
     days, plan, base, games, fpg = w["days"], w["plan"], w["base"], w["games"], w["fpg"]
     if not days:
@@ -932,13 +960,23 @@ def cmd_week(d, a):
         print("Play chance used for tagged players: " + "; ".join(notes))
     sleeper = dict(enumerate(w["r"].get("starters") or []))
     swaps = [(i, p) for i, p in sorted(base.items()) if sleeper.get(i) != p]  # every slot that changes: the full move set
+    mc = matchup_for(d, w, a) if w["left"] else None
     if swaps:
         print(f"Base lineup changes vs Sleeper (+{w['gain']:.1f} expected locked FP with games left; make all of them):")
         for i, p in swaps:
             old = sleeper.get(i)
+            # Benching a starter discards his unlocked posted score, and E(left) can't see it (regression: Saturday
+            # night's base benched Jokić's 90.0 for Poeltl's 30.9).
+            team = pool.get(old, {}).get("team")
+            # His latest tipped game must be final: one in progress has expired the earlier score and isn't lockable yet.
+            last = max((day for day in w["games"].get(old, {}) if day < d["today"] or tipped(day, team)), default=None)
+            posted = old not in base.values() and last is not None and (last < d["today"] or final(last, team))
+            line = slot_line(mc, i, *stop_moments(slot_days(w["left"], p, *feeds_of(w, i)[:1], games, fpg, feeds_of(w, i)[1])))
             print((f"  move {short(pool, p)} from {now[p]} to {SLOTS[i]}" if p in now else
                    f"  start {short(pool, p)} ({w['exp'][p]:.1f}) at {SLOTS[i]}")
-                  + (f" (for {short(pool, old)})" if old not in (None, "0") else ""))
+                  + (f" (for {short(pool, old)}" + (f"; first lock {short(pool, old)}'s posted score instead if it's "
+                                                    f"≥ {line:.1f}, record it with lock --commit and rerun week" if posted else "") + ")"
+                     if old not in (None, "0") else ""))
     print("Rotation plan (move bench player into the slot before tip on days its starter is idle; "
           "keep the score only if it beats the lock threshold):")
     for day in w["left"]:
@@ -957,7 +995,6 @@ def cmd_week(d, a):
     flags, tonight, pooled = [], [], False
     lanes = lanes_after(w, w["left"][0]) if w["left"] else {}
     reach = feed_reach(w, lanes)
-    mc = matchup_for(d, w, a) if w["left"] else None
     lane_line = {j: slot_line(mc, j, lane[1], lane[3]) for j, lane in lanes.items()}
     for i, s in sorted(base.items()):
         if i in w["blocked"]:
@@ -1088,13 +1125,15 @@ def lock_slot(d, pid, anchor, game_day):
     return cont, desc, upper, fills, w, i, m2
 
 
-def lock_game(dates, today, game=None):
+def lock_game(dates, today, game=None, team=None):
     """Which game the score is from and his games after it -> (game, after, error or None).
-    Default: his latest game on or before today (a score run the next morning is from yesterday's game)."""
+    Default: his latest game on or before today (a score run the next morning is from yesterday's game), skipping
+    today's game while the clock says it hasn't tipped."""
     if game is not None and game not in dates:
         return game, [], f"no game on {game:%a %m/%d}"
     if game is None:
-        past = [day for day in dates if day <= today]
+        t = CLOCK["tips"].get((today, team))  # without a tip time or clock (--date), today's game may count
+        past = [day for day in dates if day < today or day == today and not (t and CLOCK["now"] and CLOCK["now"] < t)]
         if not past:
             return None, [], "no game on or before today this week; pass --game YYYY-MM-DD"
         game = max(past)
@@ -1241,7 +1280,7 @@ def cmd_lock(d, a):
     fpg = d["vals"][pid][1]
     gm = games_of(d, pid, wg)
     if d["sched"] or a.game:
-        game, after, err = lock_game(set(gm), d["today"], a.game)
+        game, after, err = lock_game(set(gm), d["today"], a.game, pool[pid].get("team"))
         if err:
             sys.exit(f"{short(pool, pid)}: {err}. His games this week: " + (" ".join(f"{day:%a %m/%d}" for day in sorted(gm)) or "none"))
     else:
@@ -1257,14 +1296,17 @@ def cmd_lock(d, a):
         pm = play_map(gm, st, max(d["today"], game + datetime.timedelta(1)), pid)
         return [pm[day] for day in after[len(after) - n_left:]]
 
-    def slot_for(dd, plays):
-        if a.remaining is not None or a.play is not None:
+    def with_plays(dd, plays, always=False):
+        if always or a.remaining is not None or a.play is not None:
             # --remaining N keeps the last N dates (e.g. the next game is ruled out); other players' games stay intact.
             kept = after[len(after) - n_left:]
             override = {day: 0.0 for day in after if day not in kept}
             override.update(dict(zip(kept, plays)))
             dd = dict(dd, game_overrides={**dd.get("game_overrides", {}), pid: override})
-        return lock_slot(dd, pid, anchor, game)
+        return dd
+
+    def slot_for(dd, plays):
+        return lock_slot(with_plays(dd, plays), pid, anchor, game)
 
     plays = plays_for(status(pool, pid))
     if a.remaining is None and not d["sched"]:
@@ -1297,6 +1339,42 @@ def cmd_lock(d, a):
     mline = slot_line(mc, slot[5], slot[0], slot[6]) if mc else None
     for line in lock_report(short(pool, pid), a.score, fpg, plays, slot, mline):
         print(line)
+    if slot and pid in starters:
+        # Locking also frees the bench players the plan fed into his slot for other slots (regression: Fox's 41.0 was
+        # a one-slot WAIT but +3.3 for the team). Both arms replan week's base, as week --locked does.
+        # Both arms use his plays as lock computed them (play_map from today would count the scored game as a DTD's next).
+        dw, locks = dict(with_plays(d, plays, True), kept_locks=kept_locks(d)), saved_locks(d)
+        # The score's own game is spent either way (slot_states would still count an unfinished one as to come).
+        spent = {day: 0.0 for day in gm if day <= game}
+        dw = dict(dw, game_overrides={**dw.get("game_overrides", {}), pid: {**dw.get("game_overrides", {}).get(pid, {}), **spent}})
+        dl = dict(dw, locked=d["locked"] + [pid], lock_scores={**locks, pid: a.score})
+        dw = dict(dw, lock_scores=locks)
+        # Other starters' finished, unlocked scores stand in both arms (slot_states keeps one that reaches its wait value).
+        try:
+            box = box_scores(d) if d.get("league") else {}
+        except (OSError, ValueError) as e:
+            box = None
+            print(f"  NOTE: box scores unavailable ({e}); whole-team comparison withheld (it needs other starters' scores).")
+        standing = {}
+        for p in starters if box is not None else []:
+            team = pool.get(p, {}).get("team")
+            # His latest tipped game: a DNP voids the score before it, and one still in progress has no standing score.
+            last = max((day for day in games_of(d, p, wg) if day < d["today"] or tipped(day, team)), default=None)
+            if (p != pid and p not in d["locked"] and last in box.get(p, {}) and (last < d["today"] or final(last, team))
+                    and observed_start(d, r["roster_id"], p, last) is not False):
+                standing[p] = box[p][last]
+
+        # Standing scores floor their slots in the rotation plan (feeds go where they beat them) and in slot_states.
+        # With no game left of his own, waiting leaves his score standing like the others' (a later feed can still beat it).
+        mine = {**standing, pid: a.score} if not after else standing
+        dw, dl = dict(dw, standing=mine), dict(dl, standing=standing)
+
+        if box is not None:
+            # Either arm may keep Sleeper's lineup (week's base can bench a finished starter, dropping his standing score).
+            lock_t = max(team_score(dl, MY_ROSTER, standing, sb)[0] for sb in (False, True))
+            wait_t = max(team_score(dw, MY_ROSTER, mine, sb)[0] for sb in (False, True))
+            print(f"  whole team (EV, week's plan replanned): lock {a.score:.1f} → {lock_t:.1f}; wait → {wait_t:.1f} "
+                  f"({lock_t - wait_t:+.1f} for locking)")
     if mc:
         _, lock_odds, wait_odds = win_line(mc, slot[5], (slot[0], max(0.0, slot[6] - slot[0] ** 2)))
         print(f"  matchup odds: lock {a.score:.1f} → {odds_text(lock_odds(a.score))}; wait → {odds_text(wait_odds)}"
@@ -1349,7 +1427,8 @@ def box_scores(d):
 
 
 def eligible_reported(d, ms):
-    """Only observed eligible scores may become unrecorded fixed scores in the win model. Manual locks stay exact."""
+    """Reported scores the win model may fix, minus latest-game scores a run saw benched at or after tip (an
+    unobserved start counts, as Sleeper shows it). Manual locks stay exact."""
     try:
         box = box_scores(d)
     except (OSError, ValueError) as e:
@@ -1364,9 +1443,9 @@ def eligible_reported(d, ms):
                 # An earlier score surviving a later completed game exposes a lock (#3), regardless of observations.
                 earlier = (games[day] != score and score in [fp for dd, fp in games.items() if dd < day]
                            and (day < d["today"] or final(day, d["pool"].get(pid, {}).get("team"))))
-                if earlier or (games[day] == score and observed_start(d, m["roster_id"], pid, day)):
+                if earlier or (games[day] == score and observed_start(d, m["roster_id"], pid, day) is not False):
                     reported[pid] = score
-    print("NOTE: win model uses observed eligible latest scores, API earlier-game scores and recorded locks; other slots use remaining games.")
+    print("NOTE: win model drops latest scores a run saw benched at or after tip; it keeps other reported scores and recorded locks.")
     return reported
 
 
@@ -1394,7 +1473,7 @@ def pending_locks(d, r, wg, a=None):
     mc = matchup_for(d, ws[0], a)
     mcs = (mc, matchup_in(mc, ws[1]))
     print(f"Pending lock calls, week {d['week']} (current starters; you can only lock a game he started; skip slots already locked):")
-    print("  Eligibility uses observed lineups only; confirm no benching between tool runs. Manual checks require a score still lockable in Sleeper.")
+    print("  Eligibility from observed lineups; moves between tool runs are invisible, so confirm in Sleeper the score is still lockable.")
     rows, out = [], []  # out: printed lines, or a row index whose call is decided jointly below
     for i, pid in enumerate(starters):
         if pid in d.get("locked", []):
@@ -1403,9 +1482,10 @@ def pending_locks(d, r, wg, a=None):
         if pid not in played or pid not in d["vals"]:
             continue
         last_day, score = max(played[pid])
-        if not observed_start(d, r["roster_id"], pid, last_day):
-            out.append(f"  {short(pool, pid)}: {last_day.strftime(DAY)} score eligibility unverified "
-                       "(not observed starting before tip, or benched since); no automatic lock verdict. Check Sleeper.")
+        seen = observed_start(d, r["roster_id"], pid, last_day)
+        if seen is False:
+            out.append(f"  {short(pool, pid)}: {last_day.strftime(DAY)} score not lockable (a run at or after tip saw him "
+                       "out of the starting lineup); no lock verdict. Check Sleeper if that's wrong.")
             continue
         gm = games_of(d, pid, wg)
         if not gm:
@@ -1421,7 +1501,7 @@ def pending_locks(d, r, wg, a=None):
         # base is judged on Sleeper's lineup, as before.
         feed = i in ws[0]["base"] and pid not in ws[0]["base"].values() and i not in ws[0]["blocked"]
         sb = ws[0]["base"].get(i) != pid and not feed
-        rows.append(dict(i=i, pid=pid, day=last_day, score=score, after=after, sb=sb, feed=feed,
+        rows.append(dict(i=i, pid=pid, day=last_day, score=score, after=after, sb=sb, feed=feed, unseen=seen is None,
                          plays=[pm[day] for day in sorted(gm) if day > last_day],
                          log=", ".join(f"{day.strftime('%a')} {fp:.1f}" for day, fp in sorted(played[pid]))))
         out.append(len(rows) - 1)
@@ -1445,7 +1525,8 @@ def pending_locks(d, r, wg, a=None):
             continue
         row = rows[item]
         i, pid, score, after = row["i"], row["pid"], row["score"], row["after"]
-        tail = f"  [{row['log']}]" + (" (today: confirm final)" if row["day"] == d["today"] else "")
+        tail = (f"  [{row['log']}]" + (" (today: confirm final)" if row["day"] == d["today"] else "")
+                + (" (start before tip unobserved: confirm he started it)" if row["unseen"] else ""))
         w = ws[row["sb"]]
         if i in calls:
             choice, lanes, reach, prices = calls[i]
@@ -2119,57 +2200,25 @@ def cmd_matchup(d, a):
     footer(d)
 
 
-def records(matchups_by_week):
-    """roster_id -> [h2h W, L, T, median W, L, T, PF] from completed weeks' matchups."""
-    rec = {}
-    for ms in matchups_by_week:
-        pts = {m["roster_id"]: m.get("points") or 0 for m in ms}
-        ranked = sorted(pts.values(), reverse=True)
-        top_cut, bottom = ranked[len(ranked) // 2 - 1], ranked[len(ranked) // 2]
-        for m in ms:
-            r = rec.setdefault(m["roster_id"], [0] * 7)
-            p = pts[m["roster_id"]]
-            opp = [pts[o["roster_id"]] for o in ms if m["matchup_id"] is not None and o["matchup_id"] == m["matchup_id"]
-                   and o["roster_id"] != m["roster_id"]]
-            if opp:
-                r[0 if p > opp[0] else 1 if p < opp[0] else 2] += 1
-            r[3 if p > bottom else 4 if p < top_cut else 5] += 1  # tie at the median cut counts as a tie
-            r[6] += p
-    return rec
-
-
-def regular_weeks(week, playoff_start):
-    """Completed regular-season weeks before `week`: playoff weeks have no median game and don't count."""
-    return range(1, min(week, playoff_start))
+def standing_rows(rosters):
+    """Rosters in standings order from Sleeper's official records (H2H plus median games; locked scores): wins
+    (ties half), then PF -> [(roster_id, "W-L-T", PF, PA)]."""
+    pts = lambda s, k: s.get(k, 0) + s.get(k + "_decimal", 0) / 100
+    rows = [(r["roster_id"], r.get("settings") or {}) for r in rosters]
+    rows.sort(key=lambda x: (-(x[1].get("wins", 0) + x[1].get("ties", 0) / 2), -pts(x[1], "fpts")))
+    return [(rid, f"{s.get('wins', 0)}-{s.get('losses', 0)}-{s.get('ties', 0)}", pts(s, "fpts"), pts(s, "fpts_against"))
+            for rid, s in rows]
 
 
 def cmd_standings(d, a):
-    lid = d["league"]["league_id"]
-    done = regular_weeks(d["state"]["week"], d["league"]["settings"]["playoff_week_start"])
-    try:
-        with concurrent.futures.ThreadPoolExecutor(8) as ex:
-            weeks = list(ex.map(lambda w: draft.get(f"/league/{lid}/matchups/{w}"), done))
-    except (OSError, ValueError) as e:
-        print(f"Matchup history unavailable ({e}); showing Sleeper's records only.")
-        weeks = []
-    rec = records(weeks)
-    rows = []
-    for r in d["rosters"]:
-        h = rec.get(r["roster_id"], [0] * 7)
-        s = r["settings"]
-        rows.append((h[0] + h[3] + (h[2] + h[5]) / 2, h[6], r["roster_id"], h, s))
-    rows.sort(key=lambda x: (-x[0], -x[1]))
-    print(f"Standings after {len(weeks)} completed week(s) (H2H + median game; ties by PF, Sleeper tiebreak unverified)")
-    print(f"  {'#':<3}{'Team':<15}{'H2H':<8}{'Median':<8}{'Total':<8}{'PF':>8}   Sleeper W-L-T, fpts")
-    for n, (_, pf, rid, h, s) in enumerate(rows, 1):
+    # Not rebuilt from /matchups/<w>: once a week closes, those points revert to each starter's final game.
+    print("Standings (Sleeper's records: H2H + median game each week; ties by PF, Sleeper tiebreak unverified)")
+    print(f"  {'#':<3}{'Team':<15}{'W-L-T':<8}{'PF':>8}{'PA':>8}")
+    for n, (rid, wlt, pf, pa) in enumerate(standing_rows(d["rosters"]), 1):
         mark = " bye" if n <= 2 else " playoff" if n <= 6 else ""
-        print(f"  {n:<3}{d['team'][rid] + ('*' if rid == MY_ROSTER else ''):<15}{f'{h[0]}-{h[1]}-{h[2]}':<8}"
-              f"{f'{h[3]}-{h[4]}-{h[5]}':<8}{f'{h[0] + h[3]}-{h[1] + h[4]}':<8}{pf:>8.1f}   "
-              f"{s.get('wins')}-{s.get('losses')}-{s.get('ties')}, {s.get('fpts', 0) + s.get('fpts_decimal', 0) / 100:.1f}{mark}")
+        print(f"  {n:<3}{d['team'][rid] + ('*' if rid == MY_ROSTER else ''):<15}{wlt:<8}{pf:>8.1f}{pa:>8.1f}{mark}")
         if n == 6:
             print("  " + "-" * 40 + " playoff line (top 6; top 2 bye; weeks 21-23)")
-    if not weeks:
-        print("NOTE: no completed weeks yet; the H2H/median split is computed from matchups once week 1 ends.")
     footer(d)
 
 
@@ -2297,28 +2346,30 @@ def test_pending_states():
 
 
 def test_lineup_eligibility():
-    """A returned starter's old score and a bench game's score must never produce a pending call."""
+    """A score a run saw benched at or after tip never gets a pending call; an unobserved start gets one, marked."""
     from unittest.mock import patch
     d = lock_fixture()
     d["league"] = {"season": "2026"}
     day = datetime.date(2026, 10, 21)
     d["today"] = day
     rows = [dict(player_id="a", date=day.isoformat(), stats=dict(sp=1, pts=100))]
-    for since, verdict in ((None, False), ("2026-10-22T01:00:00", False),
-                           ("2026-10-20T12:00:00", True)):
-        d["lineup_since"] = {MY_ROSTER: {"a": since} if since else {}}
+    ms = [dict(roster_id=MY_ROSTER, starters=["a"], starters_points=[100.0])]
+    # (first seen starting, run times, verdict): no tip time, so the game spans the ET day (04:00 to 05:00 next day UTC).
+    for since, runs, verdict in ((None, [], "unseen"),  # regression: the week's first run after tip blinded every call
+                                 ("2026-10-22T06:00:00", ["2026-10-21T12:00:00"], "unseen"),  # out only before tip
+                                 ("2026-10-22T06:00:00", ["2026-10-22T05:30:00"], None),  # a run after the game saw him out
+                                 ("2026-10-20T12:00:00", [], "seen")):
+        d["lineup_since"], d["lineup_runs"] = {MY_ROSTER: {"a": since} if since else {}}, runs
         with patch(__name__ + ".fetch", return_value=rows), contextlib.redirect_stdout(io.StringIO()) as out:
             pending_locks(d, d["rosters"][0], week_games(d["sched"], 1))
-        assert ("A: 100.0 FP → LOCK" in out.getvalue()) == verdict, out.getvalue()
-        if not verdict:
-            assert "eligibility unverified" in out.getvalue(), out.getvalue()
-        ms = [dict(roster_id=MY_ROSTER, starters=["a"], starters_points=[100.0])]
+        assert ("A: 100.0 FP → LOCK" in out.getvalue()) == bool(verdict), out.getvalue()
+        assert ("start before tip unobserved" in out.getvalue()) == (verdict == "unseen"), out.getvalue()
+        assert ("score not lockable" in out.getvalue()) == (verdict is None), out.getvalue()
         with patch(__name__ + ".fetch", return_value=rows), contextlib.redirect_stdout(io.StringIO()):
             assert eligible_reported(d, ms) == ({"a": 100.0} if verdict else {})
     with patch(__name__ + ".fetch", side_effect=OSError("offline")), contextlib.redirect_stdout(io.StringIO()):
         assert eligible_reported(d, ms) == {}
-    # #3: an earlier locked score survives a later completed game, even without observation history.
-    d["lineup_since"] = {}
+    # #3: an earlier locked score survives a later completed game, even after an observed benching.
     d["today"] = datetime.date(2026, 10, 23)
     boxes = {"a": {day: 100.0, day + datetime.timedelta(1): 20.0}}
     with patch(__name__ + ".box_scores", return_value=boxes), contextlib.redirect_stdout(io.StringIO()):
@@ -2326,40 +2377,246 @@ def test_lineup_eligibility():
         d["today"] = day + datetime.timedelta(1)
         with patch.dict(CLOCK, now=datetime.datetime(2026, 10, 22, 23), tips={(d["today"], "Ta"): datetime.datetime(2026, 10, 22, 22)}):
             assert eligible_reported(d, ms) == {}, "an in-progress game cannot prove an earlier lock"
-    # Observations survive a restart and starting-slot swaps, but never an observed benching.
+    # Observations survive a restart and starting-slot swaps; an observed benching after tip disqualifies the game.
     import tempfile
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, patch.dict(CLOCK, tips={(day, "Ta"): datetime.datetime(2026, 10, 21, 23)}):
         path = os.path.join(tmp, "lineups.json")
         rosters = d["rosters"]
-        before = datetime.datetime(2026, 10, 21, 12)
-        after = datetime.datetime(2026, 10, 22, 1)
-        first = observe_lineups(rosters, before, path)
+        before, after, back = (datetime.datetime(2026, 10, 21, 12), datetime.datetime(2026, 10, 22, 1),
+                               datetime.datetime(2026, 10, 22, 2))
+        first, _ = observe_lineups(rosters, before, path)
         assert first[MY_ROSTER]["a"] == before.isoformat()
         rosters[0]["starters"][6], rosters[0]["starters"][8] = "a", "s6"
-        assert observe_lineups(rosters, after, path)[MY_ROSTER]["a"] == before.isoformat()
+        assert observe_lineups(rosters, after, path)[0][MY_ROSTER]["a"] == before.isoformat()
         rosters[0]["starters"][6] = "b"
-        assert "a" not in observe_lineups(rosters, after, path)[MY_ROSTER]
+        assert "a" not in observe_lineups(rosters, after, path)[0][MY_ROSTER]
         rosters[0]["starters"][6] = "a"
-        d["lineup_since"] = observe_lineups(rosters, after, path)
-        assert not observed_start(d, MY_ROSTER, "a", day)
-        assert observe_lineups(rosters, after, os.path.join(tmp, "week2.json"))[MY_ROSTER]["a"] == after.isoformat()
-        # Same-day pre-tip observations count; observations at/after tip do not.
-        with patch.dict(CLOCK, tips={(day, "Ta"): datetime.datetime(2026, 10, 21, 23)}):
-            d["lineup_since"] = first
-            assert observed_start(d, MY_ROSTER, "a", day)
-            d["lineup_since"][MY_ROSTER]["a"] = "2026-10-21T23:00:00"
-            assert not observed_start(d, MY_ROSTER, "a", day)
+        d["lineup_since"], d["lineup_runs"] = observe_lineups(rosters, back, path)
+        assert observed_start(d, MY_ROSTER, "a", day) is False
+        assert observe_lineups(rosters, after, os.path.join(tmp, "week2.json"))[0][MY_ROSTER]["a"] == after.isoformat()
+        # Same-day pre-tip observations count; a first observation at/after tip with no earlier run is unknown.
+        d["lineup_since"], d["lineup_runs"] = first, []
+        assert observed_start(d, MY_ROSTER, "a", day) is True
+        d["lineup_since"][MY_ROSTER]["a"] = "2026-10-21T23:00:00"
+        assert observed_start(d, MY_ROSTER, "a", day) is None
+        # The pre-run-log format keeps its starts; a corrupt file starts over.
+        with open(path, "w") as f:
+            f.write('{"4": {"a": "2026-10-21T12:00:00"}}')
+        assert observe_lineups(rosters, after, path) == ({MY_ROSTER: {**{p: after.isoformat() for p in rosters[0]["starters"]},
+                                                                      "a": before.isoformat()}}, [after.isoformat()])
         with open(path, "w") as f:
             f.write('{"4": {"a": "bad timestamp"}}')
-        assert observe_lineups(rosters, after, path)[MY_ROSTER]["a"] == after.isoformat()
+        assert observe_lineups(rosters, after, path)[0][MY_ROSTER]["a"] == after.isoformat()
         rosters[0]["starters"][6] = "b"
         with patch("os.replace", side_effect=OSError("disk full")), contextlib.redirect_stdout(io.StringIO()) as out:
-            assert observe_lineups(rosters, after, path) == {}
+            assert observe_lineups(rosters, after, path) == ({}, [])
         assert "could not be saved" in out.getvalue()
         rosters[0]["starters"][6] = "a"
-        d["lineup_since"] = observe_lineups(rosters, after, path)
-        assert not observed_start(d, MY_ROSTER, "a", day), "failed bench observation left old evidence reusable"
+        d["lineup_since"], d["lineup_runs"] = observe_lineups(rosters, back, path)
+        # ponytail: a failed save loses its benching; the call is then unknown (marked), never verified.
+        assert observed_start(d, MY_ROSTER, "a", day) is None, "failed bench observation left old evidence reusable"
 
+
+def test_posted_swap():
+    """A base change that benches a starter with a posted score says to decide that score first (regression: Saturday
+    night's base benched Jokić's 90.0 for Poeltl)."""
+    d = lock_fixture()
+    thu = d["today"] + datetime.timedelta(2)
+    d["today"] = thu
+    d["sched"] = [g for g in d["sched"] if not (g["home"]["team"] == "Ts0" and g["date"] == thu.isoformat())]
+    d["sched"].append({"week": 1, "date": thu.isoformat(), "home": {"team": "Tg"}, "away": {"team": "Zg"}})
+    d["pool"]["g"] = {"full_name": "G", "team": "Tg", "fantasy_positions": ["PG"]}
+    d["vals"]["g"] = (10.0, 40.0)
+    d["rosters"][0]["players"].append("g")
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_week(d, argparse.Namespace(locked=None))
+    assert "start G (36.8) at PG (for S0; first lock S0's posted score instead if it's ≥ 36.8" in out.getvalue(), out.getvalue()
+    # Codex P2: no guard while A's latest game is in progress (his Wed score expired; Thu's isn't lockable yet).
+    from unittest.mock import patch
+    d2 = lock_fixture()
+    d2["today"] = thu
+    d2["sched"].append({"week": 1, "date": thu.isoformat(), "home": {"team": "Tg"}, "away": {"team": "Zg"}})
+    d2["pool"]["g"], d2["vals"]["g"] = {"full_name": "G", "team": "Tg", "fantasy_positions": ["PG"]}, (10.0, 90.0)
+    d2["rosters"][0]["players"].append("g")
+    with patch.dict(CLOCK, now=datetime.datetime(2026, 10, 23, 0, 30), tips={(thu, "Ta"): datetime.datetime(2026, 10, 23),
+                                                                           (thu, "Tg"): datetime.datetime(2026, 10, 23, 1)}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_week(d2, argparse.Namespace(locked=None, ev=True))
+    assert "start G (82.8) at UTIL (for A)" in out.getvalue(), out.getvalue()
+    # Codex P2: the line is the slot's value with its feeds, not the incoming player's own games (H feeds PG Wed).
+    d["today"] = thu - datetime.timedelta(1)
+    d["sched"] = [g for g in d["sched"] if not (g["home"]["team"] == "Ts0" and g["date"] >= d["today"].isoformat())]
+    d["sched"].append({"week": 1, "date": d["today"].isoformat(), "home": {"team": "Th"}, "away": {"team": "Zh"}})
+    d["pool"]["h"], d["vals"]["h"] = {"full_name": "H", "team": "Th", "fantasy_positions": ["PG"]}, (10.0, 40.0)
+    d["rosters"][0]["players"].append("h")
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_week(d, argparse.Namespace(locked=None))
+    line = float(re.search(r"first lock S0's posted score instead if it's ≥ ([\d.]+)", out.getvalue()).group(1))
+    assert line > 40, out.getvalue()
+
+
+def test_whole_team():
+    """lock prints the replanned team delta (equal to the slot's own when nothing else moves); week takes --play."""
+    from unittest.mock import patch
+    d = lock_fixture()
+    args = argparse.Namespace(player="S0", score=100.0, locked=None, slot_of=None, game=None, remaining=None, play=None, ev=True)
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(d, args)
+    wait = float(re.search(r"slot wait value ([\d.]+)", out.getvalue()).group(1))
+    lock_t, wait_t = map(float, re.search(r"lock 100.0 → ([\d.]+); wait → ([\d.]+)", out.getvalue()).groups())
+    assert abs(lock_t - wait_t - (100 - wait)) < 0.15, out.getvalue()
+    total = lambda play: float(re.search(r"with rotation ([\d.]+)", week_out(d, play)).group(1))
+    assert total("S0=0") < total(None) and "--play: S0 plays each game from today with chance 0.00" in week_out(d, "S0=0")
+    # Codex P2s: --play overrides an Out tag; a DTD's team arms use lock's plays (scored game spent, not his "next");
+    # a final score with no later roll in his slot is kept by waiting (delta 0, not +score).
+    d["pool"]["s0"]["injury_status"] = "Out"
+    out_t, healthy = total(None), None
+    d["pool"]["s0"]["injury_status"] = ""
+    healthy = total(None)
+    d["pool"]["s0"]["injury_status"] = "Out"
+    assert out_t < healthy and abs(total("S0=0.92") - healthy) < 1, (out_t, healthy, total("S0=0.92"))
+    d["pool"]["s0"]["injury_status"] = "DTD"
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(d, args)
+    wait = float(re.search(r"slot wait value ([\d.]+)", out.getvalue()).group(1))
+    lock_t, wait_t = map(float, re.search(r"lock 100.0 → ([\d.]+); wait → ([\d.]+)", out.getvalue()).groups())
+    assert abs(lock_t - wait_t - (100 - wait)) < 0.15, out.getvalue()
+    d["pool"]["s0"]["injury_status"], d["today"] = "", d["today"] + datetime.timedelta(2)
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(d, args)
+    assert re.search(r"wait → [\d.]+ \([+-]0\.0 for locking\)", out.getvalue()), out.getvalue()
+    # Codex P2: week's base benches a finished starter (E 0); waiting in Sleeper's lineup still keeps his Wed score.
+    d["sched"] = [g for g in d["sched"] if g["home"]["team"] == "Tb" or g["date"] != d["today"].isoformat()]  # only B left
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(d, argparse.Namespace(**{**vars(args), "game": d["today"] - datetime.timedelta(1)}))
+    assert re.search(r"wait → [\d.]+ \([+-]0\.0 for locking\)", out.getvalue()), out.getvalue()
+    # Codex P2s: a later game he'll sit (--play 0) still replaces an unlocked score; and another starter's standing
+    # 100 isn't free for the plan to feed over. S0 (PG) and S2 (G, a PG) are done Thu; bench G2 (PG) plays Thu.
+    delta = lambda o: float(re.search(r"\(([+-][\d.]+) for locking\)", o).group(1))
+    dd = lock_fixture()
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "play": 0.0}))
+    assert abs(delta(out.getvalue()) - 100) < 0.1, out.getvalue()
+    thu = dd["today"] + datetime.timedelta(2)
+    dd["today"], dd["league"] = thu, {"season": "2026"}
+    dd["sched"] = [g for g in dd["sched"] if g["home"]["team"] not in ("Ts0", "Ts2") or g["date"] != thu.isoformat()]
+    dd["sched"].append({"week": 1, "date": thu.isoformat(), "home": {"team": "Tg2"}, "away": {"team": "Zg2"}})
+    dd["pool"]["g2"], dd["vals"]["g2"] = {"full_name": "G2", "team": "Tg2", "fantasy_positions": ["PG"]}, (10.0, 40.0)
+    dd["rosters"][0]["players"].append("g2")
+    wed = thu - datetime.timedelta(1)
+    with patch(__name__ + ".box_scores", return_value={"s0": {wed: 20.0}, "s2": {wed: 100.0}}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
+    assert delta(out.getvalue()) <= 0, out.getvalue()
+    wait0 = float(re.search(r"wait → ([\d.]+)", out.getvalue()).group(1))
+    # Codex P2s: a failed fetch withholds the comparison; a Wed DNP voids S2's Tue score (no standing 100).
+    with patch(__name__ + ".box_scores", side_effect=OSError("offline")), contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
+    assert "whole-team comparison withheld" in out.getvalue() and "whole team (EV" not in out.getvalue(), out.getvalue()
+    with patch(__name__ + ".box_scores", return_value={"s0": {wed: 20.0}, "s2": {wed - datetime.timedelta(1): 100.0}}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
+    assert float(re.search(r"wait → ([\d.]+)", out.getvalue()).group(1)) < wait0 - 50, out.getvalue()  # no 100
+    # Codex P2: S2's Wed game is in progress, so his Tue 100 has expired; it must not stand.
+    d3 = lock_fixture()
+    tue, wed = d3["today"], d3["today"] + datetime.timedelta(1)
+    d3["today"], d3["league"] = wed, {"season": "2026"}
+    deltas = []  # whole-team lines (totals too: an expired score would raise both arms alike)
+    for box in ({"s0": {tue: 20.0}}, {"s0": {tue: 20.0}, "s2": {tue: 100.0}}):
+        with patch(__name__ + ".box_scores", return_value=box), contextlib.redirect_stdout(io.StringIO()) as out, \
+                patch.dict(CLOCK, now=datetime.datetime(2026, 10, 22, 1), tips={(wed, "Ts2"): datetime.datetime(2026, 10, 22, 0)}):
+            cmd_lock(d3, argparse.Namespace(**{**vars(args), "score": 20.0, "game": tue}))
+        deltas.append(re.search(r"whole team .*", out.getvalue()).group(0))
+    assert deltas[0] == deltas[1], deltas
+    # Codex P2: replanning keeps S2's standing 100 while still starting a much better bench C (C2) over S6.
+    dd["sched"].append({"week": 1, "date": thu.isoformat(), "home": {"team": "Tc2"}, "away": {"team": "Zc2"}})
+    dd["pool"]["c2"], dd["vals"]["c2"] = {"full_name": "C2", "team": "Tc2", "fantasy_positions": ["C"]}, (10.0, 90.0)
+    dd["rosters"][0]["players"].append("c2")
+    with patch(__name__ + ".box_scores", return_value={"s0": {wed: 20.0}, "s2": {wed: 100.0}}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
+    assert delta(out.getvalue()) < -10 and float(re.search(r"wait → ([\d.]+)", out.getvalue()).group(1)) > wait0 + 30, out.getvalue()
+    # Codex P2: a bench player whose game has tipped can't be promoted for that game (he was benched at tip).
+    d5 = lock_fixture()
+    with patch.dict(CLOCK, now=datetime.datetime(2026, 10, 21, 1), tips={(d5["today"], "Tb"): datetime.datetime(2026, 10, 21, 0)}):
+        w5 = week_context(d5)
+    assert w5["games"]["b"][d5["today"]] == 0.0 and w5["exp"]["b"] == wait_value(30.0, [1 - Q_DNP]), w5["exp"]["b"]
+    # Codex P2: S0 has no game left, so waiting keeps his 60 while the replan still upgrades C (C2 over S6): no gain
+    # from locking. (G2 can feed G only once S2's 100 is passed, so both arms keep it.)
+    with patch(__name__ + ".box_scores", return_value={"s0": {wed: 60.0}, "s2": {wed: 100.0}}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 60.0, "game": wed}))
+    assert abs(delta(out.getvalue())) < 0.05, out.getvalue()
+    # Codex P2: an unrecorded standing 100 that beats his remaining games closes his slot like a recorded lock would.
+    import tempfile
+    lines = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for rec in ({}, {"s2": [100.0, MY_ROSTER, 2]}):
+            with open(os.path.join(tmp, "locks.json"), "w") as f:
+                json.dump(rec, f)
+            with patch(__name__ + ".box_scores", return_value={"s0": {wed: 40.0}, "s2": {wed: 100.0}}), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                cmd_lock(dict(dd, lock_path=os.path.join(tmp, "locks.json")),
+                         argparse.Namespace(**{**vars(args), "score": 40.0, "game": wed}))
+            lines.append(delta(out.getvalue()))
+    assert lines[0] == lines[1], lines
+    # Codex P2s: a recorded lock ignores the box score; a standing 20 whose slot G2 can feed (36.8) isn't banked.
+    with tempfile.TemporaryDirectory() as tmp:
+        dl_ = dict(dd, lock_path=os.path.join(tmp, "locks.json"))
+        outs = []
+        for s2_box in (60.0, 80.0):
+            with open(dl_["lock_path"], "w") as f:
+                json.dump({"s2": [60.0, MY_ROSTER, 2]}, f)
+            with patch(__name__ + ".box_scores", return_value={"s0": {wed: 40.0}, "s2": {wed: s2_box}}), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                cmd_lock(dl_, argparse.Namespace(**{**vars(args), "score": 40.0, "game": wed}))
+            outs.append(re.search(r"whole team .*", out.getvalue()).group(0))
+    assert outs[0] == outs[1], outs
+    outs = []
+    for box in ({"s0": {wed: 43.0}, "s2": {wed: 20.0}}, {"s0": {wed: 43.0}}):  # G2's feed beats the 20 either way
+        with patch(__name__ + ".box_scores", return_value=box), contextlib.redirect_stdout(io.StringIO()) as out:
+            cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 43.0, "game": wed}))
+        outs.append(re.search(r"whole team .*", out.getvalue()).group(0))
+    assert outs[0] == outs[1], outs
+    # Codex P2: a standing 100 at G floors G in the rotation plan. On Wed, W2 (PG/SF) feeds SF (idle Wed; S3 plays Thu)
+    # instead of G, whose 100 already beats a roll: the same totals as recording S2's lock.
+    d6 = lock_fixture()
+    tue6, wed6 = d6["today"], d6["today"] + datetime.timedelta(1)
+    d6["today"], d6["league"] = wed6, {"season": "2026"}
+    d6["sched"] = [g for g in d6["sched"] if not (g["home"]["team"] == "Ts2" and g["date"] > tue6.isoformat())
+                   and not (g["home"]["team"] == "Ts3" and g["date"] == wed6.isoformat())]
+    d6["sched"].append({"week": 1, "date": wed6.isoformat(), "home": {"team": "Tw2"}, "away": {"team": "Zw2"}})
+    d6["pool"]["w2"], d6["vals"]["w2"] = {"full_name": "W2", "team": "Tw2", "fantasy_positions": ["PG", "SF"]}, (10.0, 40.0)
+    d6["rosters"][0]["players"].append("w2")
+    outs = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for rec in ({}, {"s2": [100.0, MY_ROSTER, 2]}):
+            with open(os.path.join(tmp, "locks.json"), "w") as f:
+                json.dump(rec, f)
+            with patch(__name__ + ".box_scores", return_value={"s0": {tue6: 50.0}, "s2": {tue6: 100.0}}), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                cmd_lock(dict(d6, lock_path=os.path.join(tmp, "locks.json")),
+                         argparse.Namespace(**{**vars(args), "player": "S0", "score": 50.0, "game": tue6}))
+            outs.append(re.search(r"whole team .*", out.getvalue()).group(0))
+    assert outs[0] == outs[1], outs
+    # Codex P2: a departed player's recorded lock keeps its slot's score in both totals.
+    import tempfile
+    totals = lambda o: re.search(r"lock 100.0 → ([\d.]+); wait → ([\d.]+)", o).groups()
+    with tempfile.TemporaryDirectory() as tmp:
+        d4 = dict(lock_fixture(), lock_path=os.path.join(tmp, "locks.json"))
+        with contextlib.redirect_stdout(io.StringIO()) as before:
+            cmd_lock(d4, args)
+        with open(d4["lock_path"], "w") as f:
+            json.dump({"gone": [100.0, MY_ROSTER, 3]}, f)  # locked at SF, since traded
+        with contextlib.redirect_stdout(io.StringIO()) as after:
+            cmd_lock(d4, args)
+    assert all(float(y) > float(x) + 50 for x, y in zip(totals(before.getvalue()), totals(after.getvalue()))), after.getvalue()
+
+
+def week_out(d, play):
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_week(dict(d, game_overrides={}), argparse.Namespace(locked=None, play=play, ev=True))
+    return out.getvalue()
 
 
 def test_pooled_locks():
@@ -2994,6 +3251,12 @@ def test_matchup_lines():
 
 
 def test():
+    from unittest.mock import patch
+    with patch(__name__ + ".fetch", side_effect=OSError("tests run offline")):  # a test that needs data patches fetch
+        run_tests()
+
+
+def run_tests():
     test_review()
     test_review_pooled()
     test_matchup_lines()
@@ -3002,6 +3265,8 @@ def test():
     test_lock_commits()
     test_pending_states()
     test_lineup_eligibility()
+    test_posted_swap()
+    test_whole_team()
     test_lock_continuations()
     test_pooled_locks()
     test_fa_waivers()
@@ -3262,6 +3527,12 @@ def test():
     tue, fri, sat, sun = (datetime.date(2026, 10, 20) + datetime.timedelta(i) for i in (0, 3, 4, 5))
     fox = {tue, fri, sat}
     assert lock_game(fox, sat, fri) == (fri, [sat], None)
+    from unittest.mock import patch
+    # Regression: before Fri's tip, the default is Tue's score with Fri and Sat to come, not an unplayed Fri.
+    with patch.dict(CLOCK, now=datetime.datetime(2026, 10, 23, 18), tips={(fri, "SAC"): datetime.datetime(2026, 10, 24)}):
+        assert lock_game(fox, fri, team="SAC") == (tue, [fri, sat], None)
+        CLOCK["now"] = datetime.datetime(2026, 10, 24, 1)
+        assert lock_game(fox, fri, team="SAC") == (fri, [sat], None)
     assert lock_game(fox, sun) == (sat, [], None) and lock_game(fox, fri) == (fri, [sat], None)
     assert lock_game(fox, sat, sun)[2] and lock_game({sat}, fri)[2]
 
@@ -3287,7 +3558,6 @@ def test():
     h, md = win_odds({**{r: (100, 400) for r in range(1, 11)}, 4: (130, 400)}, 4, 1)
     assert 0.8 < h < 0.9 and md > 0.9, (h, md)  # +30 at sd 20 each: Φ(30/28.3) = 0.86
     # matchup's header number is labelled as the no-rotation best 9 (regression: it read as the table's total).
-    from unittest.mock import patch
     dd = dict(lock_fixture(), league={"league_id": "L", "season": "2026", "settings": {"playoff_week_start": 21}})
     with patch("draft.get", return_value=[{"roster_id": MY_ROSTER, "matchup_id": None, "points": 0}]), \
             contextlib.redirect_stdout(io.StringIO()) as out:
@@ -3400,15 +3670,11 @@ def test():
     assert "STATUS P6 (T3): healthy → Out" in lines and not any("P9" in x for x in lines), lines
     assert lines.index("ROSTER T4: +P5 -P2") < lines.index("ROSTER T3: +P2 -—")
 
-    # Standings: H2H and median games from matchups.
-    wk = [{"roster_id": 1, "matchup_id": 1, "points": 100}, {"roster_id": 2, "matchup_id": 1, "points": 90},
-          {"roster_id": 3, "matchup_id": 2, "points": 80}, {"roster_id": 4, "matchup_id": 2, "points": 120}]
-    rec = records([wk])
-    assert rec[4][:6] == [1, 0, 0, 1, 0, 0] and rec[1][:6] == [1, 0, 0, 1, 0, 0] and rec[3][:6] == [0, 1, 0, 0, 1, 0], rec
-    # No opponent for matchup_id None, and playoff weeks don't count (regression: None paired unrelated teams).
-    rec = records([[dict(m, matchup_id=None) if m["roster_id"] in (3, 4) else m for m in wk]])
-    assert rec[4][:3] == [0, 0, 0] and rec[3][:3] == [0, 0, 0] and rec[1][:3] == [1, 0, 0], rec
-    assert regular_weeks(23, 21) == range(1, 21) and regular_weeks(5, 21) == range(1, 5)
+    # Standings from Sleeper's records (regression: rebuilt from reverted matchup points, they misplaced 2 teams).
+    st = lambda w, l, f: {"wins": w, "losses": l, "ties": 0, "fpts": f, "fpts_decimal": 50, "fpts_against": 400}
+    rows = standing_rows([{"roster_id": 1, "settings": st(0, 2, 453)}, {"roster_id": 2, "settings": st(1, 1, 474)},
+                          {"roster_id": 3, "settings": st(1, 1, 438)}])
+    assert rows == [(2, "1-1-0", 474.5, 400), (3, "1-1-0", 438.5, 400), (1, "0-2-0", 453.5, 400)], rows
     assert game_fp({"pts": 20, "reb": 10, "ast": 5, "stl": 1, "blk": 1, "to": 3, "fgm": 8, "fga": 15,
                     "ftm": 2, "fta": 3, "tpm": 2}) == 48  # prep-notes' literal box-score check
     print("ok: validation refusal, lock math, win odds, lineup/rotation, FA diff and beyond-board, changes diff, "
@@ -3426,6 +3692,7 @@ def main():
     p.add_argument("--week", type=int)
     p.add_argument("--locked", help="comma-separated players already locked this week")
     p.add_argument("--ev", action="store_true", help="EV lock lines (skip the matchup lines)")
+    p.add_argument("--play", help='comma-separated Name=P: chance each player plays each game from today (as lock --play)')
     sub.add_parser("matchup").add_argument("--week", type=int)
     p = sub.add_parser("lock")
     p.add_argument("--week", type=int)

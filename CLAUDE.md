@@ -27,14 +27,14 @@ You are the GM for the Owner (league and Sleeper user IDs in `private/config.jso
 | Need | Command |
 |---|---|
 | Live roster: slots, status, board V/wk and FP/g, games this week, IR warnings | `./gm.py roster [team]` |
-| Mon–Sun game grid, base lineup, daily bench rotation plan (seats every bench player who fits an idle slot), tonight's lock lines with "via" options, 0–1 game flags | `./gm.py week [--week N] [--locked A,B] [--ev]` (recorded locks apply automatically; `--locked` overrides them) |
-| Lock or wait on a score, judged on the slot he occupies; threshold table | `./gm.py lock "<player>" <score> [--slot-of "<starter>"] [--locked A,B] [--remaining N] [--play P] [--ev]` |
+| Mon–Sun game grid, base lineup, daily bench rotation plan (seats every bench player who fits an idle slot), tonight's lock lines with "via" options, 0–1 game flags | `./gm.py week [--week N] [--locked A,B] [--play "A=P,B=P"] [--ev]` (recorded locks apply automatically; `--locked` overrides them) |
+| Lock or wait on a score, judged on the slot he occupies, plus the whole-team total for lock vs wait (week's plan replanned); threshold table | `./gm.py lock "<player>" <score> [--slot-of "<starter>"] [--locked A,B] [--remaining N] [--play P] [--ev]` |
 | Record a lock made in Sleeper, ours or the opponent's (or undo one); `week`, `lock`, `fa` and `matchup` then use it all week | `./gm.py lock "<player>" <score> --commit`, `./gm.py lock "<player>" --uncommit` |
 | Pending lock calls from this week's box scores (current starters); the night's bench scores are decided jointly: LOCK, LOCK via (with the move), WAIT or PASS | `./gm.py lock [--week N]` |
 | Board free agents vs our drop candidate (ΔV/wk, ΔE this week), waiver flags, team-level streams this week; Sleeper trending adds, off-board 2026 scorers, and a minutes radar (last-3 min/g ≥ season + 8, with FP/min) | `./gm.py fa [--pos X] [--top N]` |
 | Opponent, points so far, both teams' board strength, median game, win odds (H2H and vs median) | `./gm.py matchup [--week N]` |
 | Finished week, per slot: points counted vs the lock policy replayed on the same box scores vs hindsight, with each leak's cause | `./gm.py review [--week N]` (default: the last finished week) |
-| W-L with median games, PF, playoff line | `./gm.py standings` |
+| Sleeper's official W-L (H2H plus median games), PF, PA, playoff line | `./gm.py standings` |
 | Adds, drops, trades, roster and injury-tag changes since the last snapshot | `./gm.py changes [--no-write]` |
 | Trade evaluation: lineup-fit V/wk for both sides, forced drops and IR room, playoff-weighted delta; acceptance judged by their Sleeper-rank view | `./trade.py "<give>" "<get>" [--with TEAM]`, `./trade.py --suggest [--top N] [--min V] [--playoff]` |
 | Refresh the board with actual 2026 results (shrinks actual FP/g toward the frozen projection, k=6.5 games) | `python3 rebuild_board.py --blend` (preview), `--blend --write` |

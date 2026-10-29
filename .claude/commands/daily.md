@@ -17,7 +17,7 @@ Daily brief for today (or the date given: $ARGUMENTS, passed as `--date YYYY-MM-
 
 Stream check: `./gm.py fa`'s "Stream this week" block gives ΔTeam (whole-team gain this week, rotation included) per add/drop. Consider a stream when ΔTeam ≥ ~5 FP and the season ΔV/wk cost is small. A rolling-waiver claim costs our priority. A free agent is an instant add only until his team tips this week; after that he is a waiver claim (`fa` tags him).
 
-Close calls (score within ~2 FP of its line): also compare `./gm.py week --locked <recorded>,<player>` with `--locked <recorded>` (locked total plus E with rotation). `lock` keeps the rest of the plan fixed; `week` replans every slot and can flip the call. Run `lock` with `--game YYYY-MM-DD` for a score from an earlier day.
+Close calls (score within ~2 FP of its line): `./gm.py lock "<player>" <score>` also prints the whole-team total for lock vs wait, with every slot replanned; that can flip the one-slot call, so give both. It assumes the score is from his latest game that has tipped; pass `--game YYYY-MM-DD` otherwise.
 
 Lock lines are matchup lines in the live week: `lock` and `week` already lower them as a favourite and raise them as an underdog, from every team's current state. Before the lock calls, ask the Owner which opponent locks Sleeper's matchup view shows and record each with `./gm.py lock "<their player>" <score> --commit`. Quote the matchup line. `week` adds the EV line when they differ by 0.5 FP or more, and `lock` always prints both. Call a 1–2 FP gap a lean, since the win model is overconfident.
 
