@@ -1439,6 +1439,10 @@ def eligible_reported(d, ms):
         return {}
     reported, records = {}, saved_locks(d)
     for m in ms:
+        # A locked player can't leave his starting slot, so a recorded one on the bench disproves the record.
+        for pid in set(records) & set(m.get("players") or []) - set(m.get("starters") or []):
+            print(f"WARN: {short(d['pool'], pid)}'s recorded lock {records[pid]:.1f} is contradicted: he's off the starting "
+                  f"slots. Undo it: ./gm.py lock \"{short(d['pool'], pid)}\" --uncommit")
         for pid, score in zip(m.get("starters") or [], m.get("starters_points") or []):
             games = {day: fp for day, fp in box.get(pid, {}).items() if day <= d["today"]}
             if games:
@@ -2390,6 +2394,13 @@ def test_lineup_eligibility():
             contextlib.redirect_stdout(io.StringIO()) as out:
         eligible_reported(d, late)
     assert "recorded lock 100.0 is contradicted" in out.getvalue(), out.getvalue()
+    benched = [dict(ms[0], starters=["0"], players=["a"])]
+    with patch(__name__ + ".box_scores", return_value=boxes), patch(__name__ + ".saved_locks", return_value={"a": 100.0}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        eligible_reported(d, ms)  # a real exposed lock: Sleeper still reports the recorded 100.0
+        assert "contradicted" not in out.getvalue(), out.getvalue()
+        eligible_reported(d, benched)
+    assert "off the starting slots" in out.getvalue(), out.getvalue()
     with patch(__name__ + ".box_scores", return_value=boxes), contextlib.redirect_stdout(io.StringIO()):
         d["today"] = day + datetime.timedelta(1)
         with patch.dict(CLOCK, now=datetime.datetime(2026, 10, 22, 23), tips={(d["today"], "Ta"): datetime.datetime(2026, 10, 22, 22)}):
