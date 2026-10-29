@@ -30,6 +30,8 @@ The Owner confirmed in Sleeper that benching an unlocked player discards his sco
 
 The fix for [#14](https://github.com/allmanr/fb-gm/issues/14) records starting-lineup observations locally and withholds automatic verdicts without a pre-tip observation or after an observed benching. Observations cannot detect a move made and reversed between runs. The same eligibility filter excludes unverified reported scores from the win model's fixed-score estimates; manual lock records remain authoritative. Automatic inference of earlier locked games remains [#4](https://github.com/allmanr/fb-gm/issues/4).
 
+**Revised Oct 29 ([PR #17](https://github.com/allmanr/fb-gm/pull/17)):** withholding every unobserved call blinded `lock` for a whole week after the first run came late (all 7 calls withheld). Now a call is withheld, and a reported score dropped from the win model, only when a run at or after tip saw the player out of the starting lineup. An unobserved start gets its verdict, tagged "confirm he started it". Lock detection moved to [#16](https://github.com/allmanr/fb-gm/issues/16).
+
 The lock-exposure research item in [#3](https://github.com/allmanr/fb-gm/issues/3) is answered by the October 23 check. The app-settings checks remain open.
 
 ## Weekly median game (`league_average_match: 1`)
