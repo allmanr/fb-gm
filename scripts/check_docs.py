@@ -66,29 +66,30 @@ def check_commands(name, text, helptext):
     errs = []
     for span in re.findall(r'`([^`\n]+)`', text):
         for script in SCRIPTS:
-            m = re.search(r'(?:\./|python3 )%s\b(.*)' % re.escape(script), span)
-            if not m:
-                continue
-            args = re.sub(r'<[^>]*>', '<x>', m.group(1))  # one token per placeholder such as <that Sunday>
-            top = helptext(script, None)
-            subs = re.findall(r'\{([\w,]+)\}', top)
-            known = top
-            if subs:
-                # Global flags only: the description below the usage block names every subcommand's flags.
-                known = top.split('\n\n')[0]
-                valued = re.findall(r'\[(--[\w-]+) [A-Z_]+\]', known)
-                toks, sub = args.split(), None
-                while toks and toks[0].startswith('-'):
-                    toks = toks[2:] if toks[0] in valued else toks[1:]
-                if toks and not toks[0].startswith('<'):
-                    if toks[0] in subs[0].split(','):
-                        sub = toks[0]
-                    else:
-                        errs.append('%s: `%s` has no subcommand %s' % (name, span, toks[0]))
-                known += helptext(script, sub) if sub else ''
-            for flag in re.findall(r'(?<![\w-])(--[a-z][\w-]*)', args):
-                if flag != '--help' and flag not in re.findall(r'--[a-z][\w-]*', known):
-                    errs.append('%s: `%s` has no %s' % (name, span, flag))
+            for m in re.finditer(r'(?:\./|python3 )%s\b([^&|;]*)' % re.escape(script), span):
+                # One token per placeholder such as <that Sunday>; optional brackets don't change the words.
+                toks = re.sub(r'<[^>]*>', '<x>', m.group(1)).replace('[', ' ').replace(']', ' ').split()
+                top = helptext(script, None)
+                subs = re.findall(r'\{([\w,]+)\}', top)
+                if not subs:
+                    checks = [(toks, top)]
+                else:
+                    # Flags before the subcommand are global (the usage block; the description below it names
+                    # every subcommand's flags); flags after it belong to that subcommand.
+                    usage = top.split('\n\n')[0]
+                    valued = re.findall(r'\[(--[\w-]+) [A-Z_]+\]', usage)
+                    i = 0
+                    while i < len(toks) and toks[i].startswith('-'):
+                        i += 2 if toks[i] in valued else 1
+                    sub = toks[i] if i < len(toks) and not toks[i].startswith('<') else None
+                    if sub and sub not in subs[0].split(','):
+                        errs.append('%s: `%s` has no subcommand %s' % (name, span, sub))
+                        sub = None
+                    checks = [(toks[:i], usage), (toks[i:], helptext(script, sub) if sub else usage)]
+                for part, known in checks:
+                    for flag in re.findall(r'(?<![\w-])(--[a-z][\w-]*)', ' '.join(part)):
+                        if flag != '--help' and flag not in re.findall(r'--[a-z][\w-]*', known):
+                            errs.append('%s: `%s` has no %s' % (name, span, flag))
     return errs
 
 
@@ -115,9 +116,11 @@ def selftest():
     fake = lambda s, sub: ('usage: gm.py [--date DATE] {lock,week}\n\n  lock P S --commit  record a lock\n'
                            if sub is None else ' --commit' if sub == 'lock' else '')
     assert check_commands('b.md', '`./gm.py --date <that Sunday> lock "P" 5 --commit` `./gm.py <command> --help` '
-                          '`./gm.py week --commit` `./gm.py lineup --week 3`', fake) == [
+                          '`./gm.py week --commit` `./gm.py lineup --week 3` `./gm.py week --date D` '
+                          '`./gm.py [--date D] lock` `./gm.py week && ./gm.py lock --commit`', fake) == [
         'b.md: `./gm.py week --commit` has no --commit',
-        'b.md: `./gm.py lineup --week 3` has no subcommand lineup', 'b.md: `./gm.py lineup --week 3` has no --week']
+        'b.md: `./gm.py lineup --week 3` has no subcommand lineup', 'b.md: `./gm.py lineup --week 3` has no --week',
+        'b.md: `./gm.py week --date D` has no --date']
 
 
 def main():
