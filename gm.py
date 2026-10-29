@@ -964,8 +964,10 @@ def cmd_week(d, a):
             old = sleeper.get(i)
             # Benching a starter discards his unlocked posted score, and E(left) can't see it (regression: Saturday
             # night's base benched Jokić's 90.0 for Poeltl's 30.9).
-            posted = old in w["games"] and old not in base.values() and any(
-                day < d["today"] or tipped(day, pool.get(old, {}).get("team")) for day in w["games"][old])
+            team = pool.get(old, {}).get("team")
+            # His latest tipped game must be final: one in progress has expired the earlier score and isn't lockable yet.
+            last = max((day for day in w["games"].get(old, {}) if day < d["today"] or tipped(day, team)), default=None)
+            posted = old not in base.values() and last is not None and (last < d["today"] or final(last, team))
             line = slot_line(mc, i, *stop_moments(slot_days(w["left"], p, *feeds_of(w, i)[:1], games, fpg, feeds_of(w, i)[1])))
             print((f"  move {short(pool, p)} from {now[p]} to {SLOTS[i]}" if p in now else
                    f"  start {short(pool, p)} ({w['exp'][p]:.1f}) at {SLOTS[i]}")
@@ -1359,6 +1361,13 @@ def cmd_lock(d, a):
                     and observed_start(d, r["roster_id"], p, last) is not False):
                 standing[p] = box[p][last]
 
+        # A standing score that beats his own remaining games is banked in both arms: lock it, so no feed is planned
+        # into a slot it already closes. ponytail: judged on his own games, not the slot's feeds.
+        own = week_context(dw)["exp"]
+        closed = {p: x for p, x in standing.items() if x >= own.get(p, 0.0)}
+        standing = {p: x for p, x in standing.items() if p not in closed}
+        dw = dict(dw, locked=d["locked"] + list(closed), lock_scores={**locks, **closed})
+        dl = dict(dl, locked=dl["locked"] + list(closed), lock_scores={**dl["lock_scores"], **closed})
         # With no game left of his own, waiting leaves his score standing like the others' (a later feed can still beat it).
         mine = {**standing, pid: a.score} if not after else standing
         dw, dl = dict(dw, standing=mine), dict(dl, standing=standing)
@@ -2425,6 +2434,18 @@ def test_posted_swap():
     with contextlib.redirect_stdout(io.StringIO()) as out:
         cmd_week(d, argparse.Namespace(locked=None))
     assert "start G (36.8) at PG (for S0; first lock S0's posted score instead if it's ≥ 36.8" in out.getvalue(), out.getvalue()
+    # Codex P2: no guard while A's latest game is in progress (his Wed score expired; Thu's isn't lockable yet).
+    from unittest.mock import patch
+    d2 = lock_fixture()
+    d2["today"] = thu
+    d2["sched"].append({"week": 1, "date": thu.isoformat(), "home": {"team": "Tg"}, "away": {"team": "Zg"}})
+    d2["pool"]["g"], d2["vals"]["g"] = {"full_name": "G", "team": "Tg", "fantasy_positions": ["PG"]}, (10.0, 90.0)
+    d2["rosters"][0]["players"].append("g")
+    with patch.dict(CLOCK, now=datetime.datetime(2026, 10, 23, 0, 30), tips={(thu, "Ta"): datetime.datetime(2026, 10, 23),
+                                                                           (thu, "Tg"): datetime.datetime(2026, 10, 23, 1)}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_week(d2, argparse.Namespace(locked=None, ev=True))
+    assert "start G (82.8) at UTIL (for A)" in out.getvalue(), out.getvalue()
     # Codex P2: the line is the slot's value with its feeds, not the incoming player's own games (H feeds PG Wed).
     d["today"] = thu - datetime.timedelta(1)
     d["sched"] = [g for g in d["sched"] if not (g["home"]["team"] == "Ts0" and g["date"] >= d["today"].isoformat())]
@@ -2529,6 +2550,19 @@ def test_whole_team():
             contextlib.redirect_stdout(io.StringIO()) as out:
         cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 60.0, "game": wed}))
     assert abs(delta(out.getvalue())) < 0.05, out.getvalue()
+    # Codex P2: an unrecorded standing 100 that beats his remaining games closes his slot like a recorded lock would.
+    import tempfile
+    lines = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for rec in ({}, {"s2": [100.0, MY_ROSTER, 2]}):
+            with open(os.path.join(tmp, "locks.json"), "w") as f:
+                json.dump(rec, f)
+            with patch(__name__ + ".box_scores", return_value={"s0": {wed: 40.0}, "s2": {wed: 100.0}}), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                cmd_lock(dict(dd, lock_path=os.path.join(tmp, "locks.json")),
+                         argparse.Namespace(**{**vars(args), "score": 40.0, "game": wed}))
+            lines.append(delta(out.getvalue()))
+    assert lines[0] == lines[1], lines
     # Codex P2: a departed player's recorded lock keeps its slot's score in both totals.
     import tempfile
     totals = lambda o: re.search(r"lock 100.0 → ([\d.]+); wait → ([\d.]+)", o).groups()
