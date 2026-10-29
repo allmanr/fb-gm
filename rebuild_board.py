@@ -34,7 +34,7 @@ WEEK_GAMES = {1: 16, 2: 97, 3: 302, 4: 331, 5: 6}
 # 40+ games, 25+ FP/g). Player-specific residual CV was not stable (split-half
 # reliability 0.07-0.30), so CV depends on the mean only: no ceiling premium.
 CV_A, CV_B = 1.292, -0.247
-# League scoring (CLAUDE.md), applied to Sleeper per-game stat rows.
+# League scoring (README League rules), applied to Sleeper per-game stat rows.
 SCORING = {'pts': 1.0, 'reb': 1.5, 'ast': 2.0, 'stl': 2.5, 'blk': 2.5, 'to': -2.0,
            'fgm': 2.0, 'fga': -1.0, 'ftm': 1.0, 'ftmi': -1.0, 'tpm': 1.0}
 SEASON = 2026

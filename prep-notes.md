@@ -1,18 +1,15 @@
 # Project notes (league drafted 2026-10-19)
 
-Agents: read **League rules** once at session start; the rest is reference. The [README](README.md) explains how the Owner uses the assistant. League-specific records (the draft result, all rosters, scouting, manager notes, recommendations) are private: `private/draft-night.md` and `private/reports/2026-10-19/draft-retro.md` (see the README's [Private data](README.md#private-data)). [Earlier reports](reports/README.md) are archived research; don't load them unless asked.
+Operational league rules (scoring, format, lineup, IR, waivers, Lock-In) are in the README's [League rules](README.md#league-rules); this file holds the board model, data sources, board maintenance and status. The [README](README.md) explains how the Owner uses the assistant. League-specific records (the draft result, all rosters, scouting, manager notes, recommendations) are private: `private/draft-night.md` and `private/reports/2026-10-19/draft-retro.md` (see the README's [Private data](README.md#private-data)). [Earlier reports](reports/README.md) are archived research; don't load them unless asked.
 
 ## League rules
 
-These rules still apply. The draft result and the archived pre-draft pick plan are in `private/draft-night.md`; they no longer drive decisions.
+Board and model rules. The operational rules are in the README's [League rules](README.md#league-rules); the draft result and the archived pre-draft pick plan are in `private/draft-night.md` and no longer drive decisions.
 
-- **IR rule (checked in league settings, changed Oct 22):** 1 IR slot; it takes status IR, Sus, DNR or Out (`reserve_allow_out` 1; it was 2 slots without Out until Oct 22). Check the player's live Sleeper designation before assuming IR eligibility. The board's OUT bench-cost deduction (below) predates the change.
-- **Weekly format correction:** Sleeper counts one game per starter per week. In Lock-In, choose the finished game before the next game starts; a lock is irreversible. More NBA games provide chances, not additive scores. GP × FP/game is no longer our draft objective. Source: https://support.sleeper.com/en/articles/6522833-lock-in-mode-details
-- **After the draft:** a player must start the game in your starting lineup for you to lock that score. If you never lock a score, Sleeper uses the team's final game of the week, which can be zero if the player sits. The saved board estimates opportunities; it does not manage lineups or locks for you. Source: [Sleeper's Lock-In rules](https://support.sleeper.com/en/articles/6522833-lock-in-mode-details).
 - **Value versus market:** board order estimates weekly lock-in surplus under our scoring; ECR and Sleeper's rank measure different things. The room drafted close to Sleeper's rank, which is why `trade.py` judges acceptance by that view. Within a two-point value tier, prefer roster fit; no blanket center or multi-position bonus.
-- **Eligibility:** Sleeper `fantasy_positions` decides slots (`gm.py roster` prints them). Giannis, Zion, Barnes are not C. Luka, Cade, Maxey, Harden, Fox are PG only. Flagg PG/SG/SF, LeBron PG/SF/PF, Kyrie and Morant PG/SG.
 - **Opponents:** this room has no NBA history before 2026. Judge managers from `private/notes/managers.md` (dated facts kept apart from inferences) and live transactions (`gm.py changes`), not from NFL habits.
 - **Playoff schedule:** weeks 21–23, 6 teams, top 2 bye. Extra games are additional lock opportunities, not extra counted games: a 4-game week is worth only about +3% over a typical week and a 2-game week about −10% ([playoff schedules](reports/2026-10-20/playoff-schedule.md)). Schedule alone rarely justifies moving a player across value tiers.
+- **IR and the board:** the board's OUT bench-cost deduction (below) predates the Oct 22 IR change (1 slot that takes Out).
 - **Board notes:** T = approximate two-point weekly-value tier; V = expected weekly lock-in surplus above a matched-schedule healthy replacement (one game kept per week); FP/g = adjusted custom-scoring projection before bounded ECR calibration; ECR = imported ESPN points consensus (rank semantics unverified). GP and season FP remain visible as reference. Actual player positions/status come from the live Sleeper display. `cal X/g` follows the raw FP/g only when the ECR-calibrated FP/g behind V prints differently, and `gm.py` uses it (a blended `-> X/g` still wins).
 
 **Projection-risk rule:** When a displayed ECR review says RISK, prefer a proven peer within the same weekly-value tier. Rookie starting roles support upside, not a promise of the projected production. Brown remains minutes-limited; Lively is uncertain bench coverage. Kevin Porter Jr. is excluded pending a confirmed NBA role.
@@ -107,6 +104,21 @@ These sources informed the frozen inputs. They are not a fresh clearance for dra
 - Curry ankle reassurance from Kerr, not a formal clearance: https://cdn-uat.nba.com/news/steve-kerr-stephen-curry-fine-after-tweaking-right-ankle-at-warriors-practice
 - Franz remains questionable with a shoulder injury: https://cdn-uat.nba.com/news/nba-fantasy-week-1-yahoo-high-score-heroes
 - Sabonis returned for 30 preseason minutes October 16: https://www.nba.com/player/1627734/domantas-sabonis
+
+## Board maintenance
+
+Keep `board.txt` in estimated **weekly Lock-In surplus** order under this league's scoring, as documented above; season totals in its notes are reference values. Change frozen projections and availability in `board-inputs.csv` with sources in this file, run `python3 rebuild_board.py --write` (or `--blend --write` to fold in actual results, saved to `board-actuals.csv`; commit `board.txt` and `board-actuals.csv` together), preserve the explicitly unprojected players, and run `./draft.py` to confirm every board name matches a Sleeper player. Text after `#` on each board line is what the tools display. The blend shrinks actual FP/g toward the frozen projection (k=6.5 games).
+
+## Data sources and lock math
+
+Each source degrades with a NOTE rather than guessing; `gm.py`'s footer says what was used.
+
+- **Player tags:** Sleeper `/players/nba`, refetched once the cached file is 3 hours old (`--refresh` forces it); the footer prints its fetch time.
+- **Schedule and box scores:** undocumented `api.sleeper.com` endpoints; the schedule is cached daily.
+- **Tip times:** ESPN's undocumented public scoreboard (Owner-approved Oct 20), cached per game date in `.cache/tips-*.json` and cross-checked against Sleeper's schedule. On live runs (not `--date`) the rotation plan and `fa` streams never feed a player whose game has tipped. On nights with tips at least 3 h apart, `week` also plans same-night slot reuse: a bench player who would sit takes a slot before or after its early game, and the early score's deadline becomes the late tip ([backtest](reports/2026-10-20/slot-reuse.md)). It needs both tip times.
+- **Play chances:** the official NBA injury report (official.nba.com, parsed with pypdf, cached in `.cache/injury-*.json`) for the games it lists, otherwise Sleeper's tag; the README's [In-season workflow](README.md#in-season-workflow) gives the probabilities.
+- **Lock math:** rebuild_board's fitted optimal-stopping model with a backtested in-week DNP chance (8% per game, 12% on a back-to-back's second night); `--play` or `--remaining` override it for rest or injury news.
+- **Matchup lines:** in the live week, each slot's line is the score at which locking maximizes P(win H2H) + P(beat median), given every team's current state from Sleeper's matchup ([backtest](reports/2026-10-20/winodds-locks.md): +0.24 wins/20 wk with every state known). Recorded locks, ours and other teams', are exact; other teams' unrecorded slots are modeled from Sleeper's reported points. Locking may cost up to 0.002 expected wins for points, so the line stays within that band of indifference, at the EV line when the band reaches it (a decided week keeps its points). Name matching for `lock --commit`: exact names on any roster beat substrings, and an Owner match wins a tie (`draft.norm` drops Jr/Sr), so check the team the record prints. The win model is overconfident (#5), so treat a shift of a point or two as a lean.
 
 ## Original projection construction
 
