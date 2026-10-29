@@ -1465,16 +1465,16 @@ def eligible_reported(d, ms):
             games = {day: fp for day, fp in box.get(pid, {}).items() if day <= d["today"]}
             if games:
                 day = max(games)
-                # A real lock on an earlier game shows instead of his latest once that game is done, so Sleeper
-                # reporting the latest game disproves a record on an earlier one (Oct 28: displayed scores recorded).
-                x = records.get(pid)
-                if (x is not None and x != score == games[day] and x in [fp for dd, fp in games.items() if dd < day]
-                        and (day < d["today"] or final(day, d["pool"].get(pid, {}).get("team")))):
-                    print(f"WARN: {short(d['pool'], pid)}'s recorded lock {x:.1f} is contradicted: Sleeper reports {score:.1f}, "
-                          f"his {day:%a} game. Undo it: ./gm.py lock \"{short(d['pool'], pid)}\" --uncommit")
                 # An earlier score surviving a later completed game exposes a lock (#3), regardless of observations.
                 earlier = (games[day] != score and score in [fp for dd, fp in games.items() if dd < day]
                            and (day < d["today"] or final(day, d["pool"].get(pid, {}).get("team"))))
+                # So a record of any other score is wrong (Oct 29: Pritchard recorded at his later 12.5, Sleeper showed
+                # the locked 52.5). Sleeper reporting his latest game proves nothing: it showed Diabaté's 23.0 over an
+                # Owner-confirmed 54.5 lock, so that case never warns.
+                x = records.get(pid)
+                if earlier and x is not None and x != score:
+                    print(f"WARN: {short(d['pool'], pid)}'s recorded lock {x:.1f} is contradicted: Sleeper reports his locked "
+                          f"{score:.1f}. Fix it: ./gm.py lock \"{short(d['pool'], pid)}\" {score:.1f} --commit")
                 if earlier or (games[day] == score and observed_start(d, m["roster_id"], pid, day) is not False):
                     reported[pid] = score
     print("NOTE: win model drops latest scores a run saw benched at or after tip; it keeps other reported scores and recorded locks.")
@@ -2406,12 +2406,17 @@ def test_lineup_eligibility():
     boxes = {"a": {day: 100.0, day + datetime.timedelta(1): 20.0}}
     with patch(__name__ + ".box_scores", return_value=boxes), contextlib.redirect_stdout(io.StringIO()):
         assert eligible_reported(d, ms) == {"a": 100.0}
-    # A record on the earlier game while Sleeper reports the later one is flagged (Oct 28: displayed score recorded).
+    # A record on the later game while Sleeper exposes the earlier one is flagged (Oct 29: Pritchard 12.5 vs 52.5) ...
+    with patch(__name__ + ".box_scores", return_value=boxes), patch(__name__ + ".saved_locks", return_value={"a": 20.0}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        eligible_reported(d, ms)
+    assert "recorded lock 20.0 is contradicted" in out.getvalue(), out.getvalue()
+    # ... but Sleeper reporting the later game doesn't disprove a record on the earlier one (Oct 29: Diabaté 54.5).
     late = [dict(ms[0], starters_points=[20.0])]
     with patch(__name__ + ".box_scores", return_value=boxes), patch(__name__ + ".saved_locks", return_value={"a": 100.0}), \
             contextlib.redirect_stdout(io.StringIO()) as out:
         eligible_reported(d, late)
-    assert "recorded lock 100.0 is contradicted" in out.getvalue(), out.getvalue()
+    assert "contradicted" not in out.getvalue(), out.getvalue()
     benched = [dict(ms[0], starters=["0"], players=["a"])]
     with patch(__name__ + ".box_scores", return_value=boxes), patch(__name__ + ".saved_locks", return_value={"a": 100.0}), \
             contextlib.redirect_stdout(io.StringIO()) as out:
