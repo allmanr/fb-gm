@@ -886,6 +886,8 @@ def week_context(d, sleeper_base=False, rid=MY_ROSTER):
     for p, override in d.get("game_overrides", {}).items():
         if p in games:
             games[p].update(override)
+    for p in set(active) - set(r.get("starters") or []):  # benched at tip: that game can't count in any slot
+        games[p].update({day: 0.0 for day in left if day in games[p] and tipped(day, pool.get(p, {}).get("team"))})
     fpg = {p: fpg_of(d, p) for p in active}
     exp = {p: wait_value(fpg[p], [games[p][day] for day in left if day in games[p]]) for p in active}
     for p, x in (d.get("standing") or {}).items():  # lock's team comparison: a posted score he can still lock
@@ -2522,6 +2524,11 @@ def test_whole_team():
             contextlib.redirect_stdout(io.StringIO()) as out:
         cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
     assert delta(out.getvalue()) < -10 and float(re.search(r"wait → ([\d.]+)", out.getvalue()).group(1)) > wait0 + 30, out.getvalue()
+    # Codex P2: a bench player whose game has tipped can't be promoted for that game (he was benched at tip).
+    d5 = lock_fixture()
+    with patch.dict(CLOCK, now=datetime.datetime(2026, 10, 21, 1), tips={(d5["today"], "Tb"): datetime.datetime(2026, 10, 21, 0)}):
+        w5 = week_context(d5)
+    assert w5["games"]["b"][d5["today"]] == 0.0 and w5["exp"]["b"] == wait_value(30.0, [1 - Q_DNP]), w5["exp"]["b"]
     # Codex P2: a departed player's recorded lock keeps its slot's score in both totals.
     import tempfile
     totals = lambda o: re.search(r"lock 100.0 → ([\d.]+); wait → ([\d.]+)", o).groups()
