@@ -1359,20 +1359,14 @@ def cmd_lock(d, a):
                     and observed_start(d, r["roster_id"], p, last) is not False):
                 standing[p] = box[p][last]
 
-        dw, dl = dict(dw, standing=standing), dict(dl, standing=standing)
-
-        def wait_total(sb):
-            ww = week_context(dw, sb)
-            states = slot_states(dw, ww, standing)
-            j = next((j for j, q in ww["base"].items() if q == pid), None)
-            # Nothing scheduled can replace it later in his slot (a DNP'd game still would): waiting keeps the score.
-            later = j is not None and any(day >= game for f in feeds_of(ww, j) for day in f)  # incl. a same-night feed
-            return sum(m for m, _ in states) + (a.score if j is not None and not after and not later else 0.0)
+        # With no game left of his own, waiting leaves his score standing like the others' (a later feed can still beat it).
+        mine = {**standing, pid: a.score} if not after else standing
+        dw, dl = dict(dw, standing=mine), dict(dl, standing=standing)
 
         if box is not None:
             # Either arm may keep Sleeper's lineup (week's base can bench a finished starter, dropping his standing score).
             lock_t = max(team_score(dl, MY_ROSTER, standing, sb)[0] for sb in (False, True))
-            wait_t = max(wait_total(sb) for sb in (False, True))
+            wait_t = max(team_score(dw, MY_ROSTER, mine, sb)[0] for sb in (False, True))
             print(f"  whole team (EV, week's plan replanned): lock {a.score:.1f} → {lock_t:.1f}; wait → {wait_t:.1f} "
                   f"({lock_t - wait_t:+.1f} for locking)")
     if mc:
@@ -2504,7 +2498,7 @@ def test_whole_team():
     with patch(__name__ + ".box_scores", return_value={"s0": {wed: 20.0}, "s2": {wed - datetime.timedelta(1): 100.0}}), \
             contextlib.redirect_stdout(io.StringIO()) as out:
         cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 20.0, "game": wed}))
-    assert delta(out.getvalue()) > 0, out.getvalue()
+    assert float(re.search(r"wait → ([\d.]+)", out.getvalue()).group(1)) < wait0 - 50, out.getvalue()  # no 100
     # Codex P2: S2's Wed game is in progress, so his Tue 100 has expired; it must not stand.
     d3 = lock_fixture()
     tue, wed = d3["today"], d3["today"] + datetime.timedelta(1)
@@ -2529,6 +2523,12 @@ def test_whole_team():
     with patch.dict(CLOCK, now=datetime.datetime(2026, 10, 21, 1), tips={(d5["today"], "Tb"): datetime.datetime(2026, 10, 21, 0)}):
         w5 = week_context(d5)
     assert w5["games"]["b"][d5["today"]] == 0.0 and w5["exp"]["b"] == wait_value(30.0, [1 - Q_DNP]), w5["exp"]["b"]
+    # Codex P2: S0 has no game left, so waiting keeps his 60 while the replan still upgrades C (C2 over S6): no gain
+    # from locking. (G2 can feed G only once S2's 100 is passed, so both arms keep it.)
+    with patch(__name__ + ".box_scores", return_value={"s0": {wed: 60.0}, "s2": {wed: 100.0}}), \
+            contextlib.redirect_stdout(io.StringIO()) as out:
+        cmd_lock(dd, argparse.Namespace(**{**vars(args), "score": 60.0, "game": wed}))
+    assert abs(delta(out.getvalue())) < 0.05, out.getvalue()
     # Codex P2: a departed player's recorded lock keeps its slot's score in both totals.
     import tempfile
     totals = lambda o: re.search(r"lock 100.0 → ([\d.]+); wait → ([\d.]+)", o).groups()
