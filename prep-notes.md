@@ -145,7 +145,7 @@ Role evidence: [Memphis](https://www.nba.com/news/2026-27-season-preview-mem), [
 
 The audit checks pessimistic discrepancies too. Buzelis, Clingan, Sarr, Alexander-Walker, Rollins, Mathurin and Sheppard have source production or minutes below what their expert ranks imply. Their reviews flag upside for comparison within tiers. Edey's high last-season average came from only 11 games; his conservative source minutes do not justify an automatic boost. No verified broad scoring error emerged: sampled exact FantasyPros shooting projections differ from the saved conversion by less than 0.5 FP/g. Generic ECR is a check on assumptions, not a replacement objective.
 
-## Status (week 2, Oct 29)
+## Status (week 3, Nov 5)
 
 The draft is complete and the in-season GM is on `main`. A new session starts from [`CLAUDE.md`](CLAUDE.md) (the GM charter), runs the `/daily`, `/week` and `/recap` briefs, and takes new work from the [open GitHub issues](https://github.com/allmanr/fb-gm/issues). Links to `allmanr/fb-gm-private` are the private pre-split repository, where issues and PRs #1–#32 and their review threads live; its open issues moved here as #2–#6; this section keeps only the current state.
 
@@ -174,8 +174,10 @@ The draft is complete and the in-season GM is on `main`. A new session starts fr
   - A bench player's tipped game counts in no slot.
   - Codex reviewed PR #17 in 11 passes (21 P2s, 20 fixed). The root cause and the deferred finding are in [#22](https://github.com/allmanr/fb-gm/issues/22).
 - **Week-2 board blend** (`94d58f6`, Oct 28): `board.txt` blends actual results through Oct 28 (`board-actuals.csv`).
+- **Week-3 board blend and IR rule** (Nov 2, uncommitted on `main`): `board.txt`/`board-actuals.csv` blended through Nov 1; the league went to 2 IR slots, so `gm.py` `IR_SLOTS` is 2 (self-test and README updated; `scripts/check.sh` passes).
 
 **Open (impact → where tracked)**
+- **False lock-contradiction WARN:** `gm.py` warns that a recorded lock is contradicted when Sleeper shows the player's latest game, but Sleeper's display lags: an opponent's locked earlier score showed his latest game Wed night and the locked score by Thu afternoon (Nov 4–5). Following the WARN would delete a correct record and skew win odds. Fix: require the latest-game display to persist past a lag, or demote it to a NOTE → not yet ticketed.
 - **Lock auto-detection and scheduled rotations:** Sleeper's `starters_points` show a starter's locked game once he has played again ([sleeper-rules](reports/2026-10-20/sleeper-rules.md)). A lock on his latest game stays invisible until his next tip, so briefs still ask the Owner. Reading lock state, and opt-in lineup rotations (needs the Owner's approval for account writes) → [#16](https://github.com/allmanr/fb-gm/issues/16).
 - **Whole-team lock model:** the planner has no explicit current slot state, so `lock`'s whole-team line can misplace a seated bench player when a standing score and same-night reuse coincide (advisory line only; recorded locks are exact). The fix is one slot state for planner and evaluator, plus invariant tests → [#22](https://github.com/allmanr/fb-gm/issues/22).
 - **`matchup --week N` for a closed week** shows Sleeper's reverted final-game points, so `/recap` can misstate a result. Check results in Sleeper until fixed → [#18](https://github.com/allmanr/fb-gm/issues/18).
