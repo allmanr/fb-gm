@@ -36,7 +36,7 @@ SCORING = rb.SCORING  # one table: the live validation must check the scoring th
 SLOTS = ["PG", "SG", "G", "SF", "PF", "F", "C", "UTIL", "UTIL"]
 ROSTER_POSITIONS = SLOTS + ["BN"] * 5
 MY_ROSTER = 4
-IR_SLOTS = 1
+IR_SLOTS = 2
 IR_OK = {"IR", "SUS", "DNR", "OUT"}  # reserve_allow_out is 1 (changed Oct 22): Out fits IR
 DAY = "%a %m/%d"
 # 2025-26 backtest: regulars sit 8.3% of their next in-week game, 12.4% on a back-to-back's second night.
@@ -3333,13 +3333,13 @@ def run_tests():
     cfg = {"league_id": "L", "user_id": "u4"}
     league = {"league_id": "L", "sport": "nba", "roster_positions": list(ROSTER_POSITIONS),
               "scoring_settings": dict(SCORING, dd=0.0, bonus_pt_40p=0.0),
-              "settings": {"reserve_allow_out": 1, "reserve_slots": 1}}
+              "settings": {"reserve_allow_out": 1, "reserve_slots": 2}}
     rosters = [{"roster_id": 4, "owner_id": "u4", "players": [], "starters": []}]
     assert validate(cfg, league, rosters) == []
     for broken in (dict(league, scoring_settings=dict(SCORING, to=-1.0)),
                    dict(league, roster_positions=ROSTER_POSITIONS[:-1]),
-                   dict(league, settings={"reserve_allow_out": 0, "reserve_slots": 1}),
-                   dict(league, settings={"reserve_allow_out": 1, "reserve_slots": 2}),
+                   dict(league, settings={"reserve_allow_out": 0, "reserve_slots": 2}),
+                   dict(league, settings={"reserve_allow_out": 1, "reserve_slots": 1}),
                    dict(league, sport="nfl"), None):
         assert validate(cfg, broken, rosters), broken
     assert validate(cfg, league, [{"roster_id": 4, "owner_id": "x"}]) and validate(cfg, league, [])
